@@ -1,0 +1,23 @@
+<resources>
+    <!--5100平板，分辨率为1280*800.使用该文件夹下的dimens-->
+    <dimen name="hw_dp_2">2dp</dimen>
+    <dimen name="hw_dp_6">5dp</dimen>
+    <dimen name="hw_dp_8">7dp</dimen>
+    <dimen name="hw_dp_10">8dp</dimen>
+    <dimen name="hw_dp_12">10dp</dimen>
+    <dimen name="hw_dp_14">11dp</dimen>
+    <dimen name="hw_dp_15">12dp</dimen>
+    <dimen name="hw_dp_16">13dp</dimen>
+    <dimen name="hw_dp_20">16dp</dimen>
+    <dimen name="hw_dp_24">20dp</dimen>
+    <dimen name="hw_dp_25">20dp</dimen>
+    <dimen name="hw_dp_26">21dp</dimen>
+    <dimen name="hw_dp_27">22dp</dimen>
+    <dimen name="hw_dp_28">23dp</dimen>
+    <dimen name="hw_dp_30">24dp</dimen>
+
+    <!--拖拽控制点的直径-->
+    <dimen name="hw_drag_point_diameter">@dimen/hw_dp_16</dimen>
+    <!--取消和保存按钮直径-->
+    <dimen name="hw_img_btn_diameter">@dimen/hw_dp_20</dimen>
+</resources>

@@ -1,0 +1,32 @@
+<resources>
+    <!--白色P350c平板，分辨率为1024*768使用该文件夹下的dimens-->
+    <dimen name="hw_dp_2">2dp</dimen>
+    <dimen name="hw_dp_3">3dp</dimen>
+    <dimen name="hw_dp_4">4dp</dimen>
+    <dimen name="hw_dp_5">5dp</dimen>
+    <dimen name="hw_dp_6">6dp</dimen>
+    <dimen name="hw_dp_7">7dp</dimen>
+    <dimen name="hw_dp_8">8dp</dimen>
+    <dimen name="hw_dp_10">10dp</dimen>
+    <dimen name="hw_dp_11">11dp</dimen>
+    <dimen name="hw_dp_12">12dp</dimen>
+    <dimen name="hw_dp_14">14dp</dimen>
+    <dimen name="hw_dp_15">15dp</dimen>
+    <dimen name="hw_dp_16">16dp</dimen>
+    <dimen name="hw_dp_18">18dp</dimen>
+    <dimen name="hw_dp_19">19dp</dimen>
+    <dimen name="hw_dp_20">20dp</dimen>
+    <dimen name="hw_dp_21">21dp</dimen>
+    <dimen name="hw_dp_22">22dp</dimen>
+    <dimen name="hw_dp_24">24dp</dimen>
+    <dimen name="hw_dp_25">25dp</dimen>
+    <dimen name="hw_dp_26">26dp</dimen>
+    <dimen name="hw_dp_27">27dp</dimen>
+    <dimen name="hw_dp_28">28dp</dimen>
+    <dimen name="hw_dp_30">30dp</dimen>
+
+    <!--拖拽控制点的直径-->
+    <dimen name="hw_drag_point_diameter">@dimen/hw_dp_16</dimen>
+    <!--取消和保存按钮直径-->
+    <dimen name="hw_img_btn_diameter">@dimen/hw_dp_20</dimen>
+</resources>

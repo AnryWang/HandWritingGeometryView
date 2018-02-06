@@ -1,0 +1,96 @@
+def storeDir = System.getenv("STORE_ROOT")
+if (storeDir == null) {
+    storeDir = 'd:/'
+}
+def isJenkins = "true".equals(System.getenv("IS_JENKINS"))
+
+project.ext {
+    projectName = PROJECT_NAME
+    apkRootDir = "d:/test"
+    apkName = "test.apk"
+}
+
+def configPath = storeDir + project.ext.projectName + "/apk.properties"
+
+println "config path: " + configPath
+
+File propFile = file(isJenkins ? configPath : 'apk.properties');
+if (propFile.exists()) {
+    def Properties props = new Properties()
+    props.load(new FileInputStream(propFile))
+    if (props.containsKey('STORE_FILE') && props.containsKey('STORE_PASSWORD') &&
+            props.containsKey('KEY_ALIAS') && props.containsKey('KEY_PASSWORD')) {
+
+        android.signingConfigs.release.storeFile = file(props['STORE_FILE'])
+        android.signingConfigs.release.storePassword = props['STORE_PASSWORD']
+        android.signingConfigs.release.keyAlias = props['KEY_ALIAS']
+        android.signingConfigs.release.keyPassword = props['KEY_PASSWORD']
+
+        android.buildTypes.release.minifyEnabled = Boolean.parseBoolean(props['MINIFY_ENABLED', 'false'])
+
+        project.ext.apkName = props['APK_NAME']
+        project.ext.apkRootDir = props['APK_DIR']
+
+        //去除打包so文件
+        if (isJenkins) {
+            android.sourceSets.main.jniLibs.srcDirs = []
+        }
+
+        println "apkName: " + project.ext.apkName
+        println "apkPath: " + project.ext.apkRootDir
+    } else {
+        println "STORE_FILE not exist"
+        android.buildTypes.release.signingConfig = null
+    }
+} else {
+    println "apk.properties not exist"
+    android.buildTypes.release.signingConfig = null
+}
+
+
+def buildDay = new Date().format("yyyy-MM-dd", TimeZone.getTimeZone("GMT+8"))
+def buildTime = new Date().format("yyyy-MM-dd HH.mm.ss", TimeZone.getTimeZone("GMT+8"))
+
+build {
+    doLast {
+        def outputFile = new File("app/build/outputs/apk/app-release.apk")
+        def fileP = project.ext.apkRootDir + "/" + buildDay + "/" + project.ext.apkName;
+        def fileP2 = project.ext.apkRootDir + "/" + buildDay + "/" + project.ext.projectName + "/" + buildTime + ".apk";
+        copyToPath(outputFile, fileP)
+        copyToPath(outputFile, fileP2)
+    }
+}
+
+def copyToPath(file, path) {
+    if (file.name.endsWith('.apk')) {
+        def length = 1024;
+        println "start: " + file.name
+        println "path: " + file.getAbsolutePath()
+        if (!file.exists()) {
+            return
+        }
+
+        println "test: " + file.name
+
+        def fin = new FileInputStream(file);
+        def desFile = new File(path);
+        def dir = desFile.getParentFile();
+        if (!dir.exists()) {
+            dir.mkdirs()
+        }
+        def fout = new FileOutputStream(desFile);
+        byte[] buffer = new byte[length];
+        def ins;
+        while (true) {
+            ins = fin.read(buffer);
+            if (ins == -1) {
+                fin.close();
+                fout.flush();
+                fout.close();
+                break;
+            } else {
+                fout.write(buffer, 0, ins);
+            }
+        }
+    }
+}

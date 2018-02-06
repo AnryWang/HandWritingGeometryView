@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:tools="http://schemas.android.com/tools"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="@drawable/bg_corner_green_white"
+              android:minWidth="320dp"
+              android:orientation="vertical"
+              android:paddingBottom="20dp">
+
+    <!--<TextView-->
+    <!--android:id="@+id/dialog_title"-->
+    <!--android:layout_width="match_parent"-->
+    <!--android:layout_height="wrap_content"-->
+    <!--android:gravity="center"-->
+    <!--android:minHeight="100dp"-->
+    <!--android:textSize="18sp"-->
+    <!--tools:text="标题"/>-->
+
+    <TextView
+        android:id="@+id/dialog_message"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:minHeight="100dp"
+        android:paddingLeft="16dp"
+        android:paddingRight="16dp"
+        android:textSize="16sp"
+        tools:text="一日夫妻百日恩,百日夫妻似海深;海参没有虾仁贵,虾仁五十买一斤!"
+        />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="bottom">
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"/>
+
+        <Button
+            android:id="@+id/dialog_cancel_btn"
+            android:layout_width="150dp"
+            android:layout_height="50dp"
+            android:background="@drawable/bg_corner_green_gray_left"
+            android:gravity="center"
+            android:text="取消"
+            android:textColor="@drawable/color_txt_green_white_selector"
+            android:textSize="16sp"/>
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"/>
+
+        <Button
+            android:id="@+id/dialog_sure_btn"
+            android:layout_width="150dp"
+            android:layout_height="50dp"
+            android:background="@drawable/bg_corner_green_gray4"
+            android:gravity="center"
+            android:text="确定"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"/>
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"/>
+
+    </LinearLayout>
+
+</LinearLayout>

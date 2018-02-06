@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!--取消和保存几何图形布局-->
+    <RelativeLayout
+        android:id="@+id/controller_rl"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <ImageView
+            android:id="@+id/cancel_iv"
+            android:layout_width="@dimen/hw_img_btn_diameter"
+            android:layout_height="@dimen/hw_img_btn_diameter"
+            android:layout_alignParentLeft="true"
+            android:background="@drawable/cancel_sel_image_selector"/>
+
+        <ImageView
+            android:id="@+id/save_iv"
+            android:layout_width="@dimen/hw_img_btn_diameter"
+            android:layout_height="@dimen/hw_img_btn_diameter"
+            android:layout_alignParentRight="true"
+            android:src="@drawable/sure_sel_image_selector"/>
+    </RelativeLayout>
+
+
+    <!--以下是几何图形部分;控制点改为动态添加进来-->
+    <RelativeLayout
+        android:id="@+id/geometry_rl"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_below="@id/controller_rl">
+
+        <!--左上控制点-->
+        <!--右上控制点-->
+        <!--右下控制点-->
+        <!--左下控制点-->
+    </RelativeLayout>
+
+</RelativeLayout>

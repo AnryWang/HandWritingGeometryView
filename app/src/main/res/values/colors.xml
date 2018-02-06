@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#3F51B5</color>
+    <color name="colorPrimaryDark">#303F9F</color>
+    <color name="colorAccent">#FF4081</color>
+
+
+    <color name="color_22a863">#22A863</color>
+    <color name="color_59d1a3">#59d1a3</color>
+
+    <!--头布局颜色-->
+    <color name="color_cccccc">#cccccc</color> <!--头布局底部分割线背景颜色-->
+    <color name="color_ff0000">#ff0000</color>
+</resources>

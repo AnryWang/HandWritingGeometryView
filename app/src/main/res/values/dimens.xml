@@ -1,0 +1,48 @@
+<resources>
+
+
+    <dimen name="sp_8">8sp</dimen>
+    <dimen name="sp_10">10sp</dimen>
+    <dimen name="sp_12">12sp</dimen>
+    <dimen name="sp_14">14sp</dimen>
+    <dimen name="sp_16">16sp</dimen>
+    <dimen name="sp_18">18sp</dimen>
+    <dimen name="sp_20">20sp</dimen>
+    <dimen name="sp_22">22sp</dimen>
+    <dimen name="sp_24">24sp</dimen>
+    <dimen name="sp_26">26sp</dimen>
+    <dimen name="sp_28">28sp</dimen>
+    <dimen name="sp_30">30sp</dimen>
+
+    <dimen name="dp_1">1dp</dimen>
+    <dimen name="dp_8">8dp</dimen>
+    <dimen name="dp_10">10dp</dimen>
+    <dimen name="dp_12">12dp</dimen>
+    <dimen name="dp_14">14dp</dimen>
+    <dimen name="dp_16">16dp</dimen>
+    <dimen name="dp_18">18dp</dimen>
+    <dimen name="dp_20">20dp</dimen>
+    <dimen name="dp_22">22dp</dimen>
+    <dimen name="dp_24">24dp</dimen>
+    <dimen name="dp_26">26dp</dimen>
+    <dimen name="dp_28">28dp</dimen>
+    <dimen name="dp_30">30dp</dimen>
+
+    <!--公共头布局dimens-->
+    <dimen name="head_split_height">@dimen/dp_1</dimen><!--头布局底部分割线高度-->
+    <dimen name="head_height">54dp</dimen><!--头布局高度-->
+
+    <dimen name="head_left_padding">16dp</dimen><!--头布局左边距-->
+    <dimen name="head_left_img_width">25dp</dimen><!--头布局左侧图片宽度-->
+    <dimen name="head_left_img_height">25dp</dimen><!--头布局左侧图片高度-->
+    <dimen name="head_left_text_size">14sp</dimen><!--头布局左侧文字尺寸-->
+    <dimen name="head_left_msg_img_padding">5dp</dimen><!--头布局消息图片内边距-->
+    <dimen name="head_left_red_point_width">16sp</dimen><!--头布局左侧小红点宽度-->
+    <dimen name="head_left_red_point_height">16sp</dimen><!--头布局左侧小红点高度-->
+    <dimen name="head_left_red_point_text_size">12sp</dimen><!--头布局左侧小红点文字尺寸-->
+
+    <dimen name="head_center_title_size">16sp</dimen><!--头布局标题文字尺寸-->
+
+    <dimen name="head_right_padding">16dp</dimen><!--头布局右边距-->
+    <dimen name="head_right_text_size">14sp</dimen><!--头布局右侧文字尺寸-->
+</resources>

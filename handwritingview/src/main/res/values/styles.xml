@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="drag_point_style">
+        <item name="android:layout_width">@dimen/hw_drag_point_diameter</item>
+        <item name="android:layout_height">@dimen/hw_drag_point_diameter</item>
+        <item name="android:background">@drawable/drag_point_shape</item>
+    </style>
+</resources>
