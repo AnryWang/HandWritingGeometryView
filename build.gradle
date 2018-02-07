@@ -16,7 +16,6 @@ allprojects {
     repositories {
         jcenter()
         mavenCentral()
-        maven { url 'http://review.yunzuoye.cn:8081/nexus/content/groups/public' }
     }
 }
 

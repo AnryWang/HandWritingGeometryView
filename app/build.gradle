@@ -4,7 +4,7 @@ android {
     compileSdkVersion 23
     buildToolsVersion "23.0.3"
     defaultConfig {
-        applicationId "com.xh.xhhandwritingviewcomponent"
+        applicationId "com.handwriting.demo"
         minSdkVersion 14
         targetSdkVersion 22
         versionCode 1
@@ -41,5 +41,3 @@ dependencies {
     testCompile 'junit:junit:4.12'
     compile project(':handwritingview')
 }
-
-//apply from: 'apk.gradle'
