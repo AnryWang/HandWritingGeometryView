@@ -35,6 +35,18 @@
                 android:layout_weight="1"/>
 
             <Button
+                android:id="@+id/add_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="增加"/>
+
+            <Button
+                android:id="@+id/subtract_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="减小"/>
+
+            <Button
                 android:id="@+id/save_strokes_btn"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -60,9 +72,15 @@
         </LinearLayout>
     </HorizontalScrollView>
 
-    <com.hand.writing.view.HandWritingGeometryView
-        android:id="@+id/hand_writing_view"
+    <com.hand.writing.view.HandScrollView
         android:layout_width="match_parent"
-        android:layout_height="match_parent"/>
+        android:layout_height="wrap_content">
+
+        <com.hand.writing.view.HandWritingGeometryView
+            android:id="@+id/hand_writing_view"
+            android:layout_width="match_parent"
+            android:layout_height="500dp"
+            android:background="@color/color_cccccc"/>
+    </com.hand.writing.view.HandScrollView>
 
 </LinearLayout>

@@ -10,11 +10,14 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.Spinner;
+import android.widget.Toast;
 
 import com.hand.writing.DrawType;
 import com.hand.writing.view.HandWritingGeometryView;
+import com.handwriting.common.base.MyApplication;
 import com.handwriting.common.util.CustomToastUtil;
 
 import java.io.File;
@@ -188,12 +191,18 @@ public class HandWritingActivity extends AppCompatActivity {
         });
     }
 
-    @OnClick({R.id.save_strokes_btn, R.id.restore_btn, R.id.delete_btn, R.id.clear_btn})
+    @OnClick({R.id.add_btn, R.id.subtract_btn, R.id.save_strokes_btn, R.id.restore_btn, R.id.delete_btn, R.id.clear_btn})
     public void onClick(View view) {
         if (mHandWritingView == null) {
             return;
         }
         switch (view.getId()) {
+            case R.id.add_btn: // 增大手写区
+                addWriteArea(mHandWritingView);
+                break;
+            case R.id.subtract_btn: // 减小手写区
+                subtractWriteArea(mHandWritingView);
+                break;
             case R.id.save_strokes_btn: // 保存笔迹
                 FileOutputStream fos = null;
                 try {
@@ -276,5 +285,105 @@ public class HandWritingActivity extends AppCompatActivity {
                 }
                 break;
         }
+    }
+
+    /**
+     * 第一等级
+     */
+    int LEVEL_ONE = 1;
+
+    /**
+     * 第二等级
+     */
+    int LEVEL_TWO = 2;
+    /**
+     * 第三等级
+     */
+    int LEVEL_THREE = 3;
+    int mDefHeight = MyApplication.sMyApplication.getResources().getDimensionPixelSize(R.dimen.dp_500);
+
+    /**
+     * 增加手写区域
+     */
+    private void addWriteArea(HandWritingGeometryView handWritingView) {
+        int currentHeightLevel = getCurrentHeightLevel(handWritingView);
+        if (currentHeightLevel == LEVEL_THREE) {
+            Toast.makeText(this, "已达最大高度!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        currentHeightLevel++;
+        if (currentHeightLevel > LEVEL_THREE) {
+            currentHeightLevel = LEVEL_THREE;
+        }
+        resetHandWritingHeight(currentHeightLevel, handWritingView);
+    }
+
+    /**
+     * 减少手写区域
+     */
+    private void subtractWriteArea(HandWritingGeometryView handWritingView) {
+        int currentHeightLevel = getCurrentHeightLevel(handWritingView);
+        if (currentHeightLevel == LEVEL_ONE) {
+            Toast.makeText(this, "已达最小高度!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        currentHeightLevel--;
+        if (currentHeightLevel < LEVEL_ONE) {
+            currentHeightLevel = LEVEL_ONE;
+        }
+        resetHandWritingHeight(currentHeightLevel, handWritingView);
+    }
+
+    /**
+     * 重置手写控件高度
+     *
+     * @param level           高度等级
+     * @param handWritingView 手写控件
+     */
+    private void resetHandWritingHeight(int level, HandWritingGeometryView handWritingView) {
+        if (handWritingView != null) {
+            boolean isRubber = handWritingView.isRubber();
+            DrawType drawType = handWritingView.getDrawType();
+
+            FrameLayout.LayoutParams layoutParams = (FrameLayout.LayoutParams) handWritingView.getLayoutParams();
+            layoutParams.height = mDefHeight * level;
+            handWritingView.setLayoutParams(layoutParams);
+
+            //---------现在增减手写控件高度的时候，手写控件会还原笔迹--------------------------
+            //还原笔迹
+            String strokes = handWritingView.getStrokes();
+            if (!TextUtils.isEmpty(strokes)) {
+                handWritingView.restoreToImage(strokes);
+            }
+
+            //还原橡皮类型，必须放在restoreToImage(stokes)方法之后，因为restoreToImage(stokes)内部会重置成笔迹
+            if (isRubber) {
+                handWritingView.setToRubber();
+            }
+            //还原笔迹类型，必须放在restoreToImage(stokes)方法之后
+            if (drawType != DrawType.CURVE) {
+                handWritingView.setDrawType(drawType);
+            }
+        }
+    }
+
+    /**
+     * 获取当前区域高度级别
+     *
+     * @return 高度级别
+     */
+    private int getCurrentHeightLevel(HandWritingGeometryView handWritingView) {
+        if (null != handWritingView) {
+            if (handWritingView.getmHeight() <= mDefHeight + 10) {
+                return LEVEL_ONE;
+            } else if (handWritingView.getmHeight() <= 2 * mDefHeight + 10) {
+                return LEVEL_TWO;
+            } else {
+                return LEVEL_THREE;
+            }
+        }
+        return LEVEL_ONE;
     }
 }

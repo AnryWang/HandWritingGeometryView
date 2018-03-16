@@ -27,6 +27,7 @@
     <dimen name="dp_26">26dp</dimen>
     <dimen name="dp_28">28dp</dimen>
     <dimen name="dp_30">30dp</dimen>
+    <dimen name="dp_500">500dp</dimen>
 
     <!--公共头布局dimens-->
     <dimen name="head_split_height">@dimen/dp_1</dimen><!--头布局底部分割线高度-->

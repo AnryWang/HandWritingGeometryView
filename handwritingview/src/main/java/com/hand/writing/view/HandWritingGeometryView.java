@@ -27,7 +27,6 @@ import com.hand.writing.IHandWritingViewCache;
 import com.hand.writing.R;
 import com.hand.writing.listener.IGeometryListener;
 
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -73,8 +72,8 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
     private int mLimitTop; //当前可编辑区域最小上边距
     private int mLimitRight; //当前可编辑区域最大右边距
     private int mLimitBottom; //当前可编辑区域最大下边距
-    private int mDrawViewMaxLeftMargin; //可编辑几何图形的左边距
-    private int mDrawViewMaxTopMargin; //可编辑几何图形的上边距
+    private int mGeometryRealWidth; //可编辑几何图形的真实宽度
+    private int mGeometryRealHeight; //可编辑几何图形的真实高度
     private int mWidth; //手写控件宽度
     private int mHeight; //手写控件高度
 
@@ -309,16 +308,16 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
         if (mDrawType == DrawType.OVAL) {
             switch (pointInfo.index) {
                 case 0:
-                    params.setMargins(mDrawViewMaxLeftMargin / 2, 0, 0, 0);
+                    params.setMargins(mGeometryRealWidth / 2, 0, 0, 0);
                     break;
                 case 1:
-                    params.setMargins(mDrawViewMaxLeftMargin, mDrawViewMaxTopMargin / 2, 0, 0);
+                    params.setMargins(mGeometryRealWidth, mGeometryRealHeight / 2, 0, 0);
                     break;
                 case 2:
-                    params.setMargins(mDrawViewMaxLeftMargin / 2, mDrawViewMaxTopMargin, 0, 0);
+                    params.setMargins(mGeometryRealWidth / 2, mGeometryRealHeight, 0, 0);
                     break;
                 case 3:
-                    params.setMargins(0, mDrawViewMaxTopMargin / 2, 0, 0);
+                    params.setMargins(0, mGeometryRealHeight / 2, 0, 0);
                     break;
                 default:
                     break;
@@ -416,28 +415,29 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
      * 修正布局参数
      */
     private void reviseParams() {
-        mDrawViewMaxLeftMargin = mPathInfo.right - mPathInfo.left;
-        mDrawViewMaxTopMargin = mPathInfo.bottom - mPathInfo.top;
-        int geometryEditWidth = mDrawViewMaxLeftMargin + mDragPointDiameter;
-        int geometryEditHeight = mDrawViewMaxTopMargin + mDragPointDiameter;
-        int height = geometryEditHeight + mImgBtnDiameter;
+        mGeometryRealWidth = mPathInfo.right - mPathInfo.left;
+        mGeometryRealHeight = mPathInfo.bottom - mPathInfo.top;
+        int geometryEditWidth = mGeometryRealWidth + mDragPointDiameter;
+        int geometryEditHeight = mGeometryRealHeight + mDragPointDiameter + mImgBtnDiameter;
         int left = mPathInfo.left - mDragPointRadius;
         int top = mPathInfo.top - mDragPointRadius - mImgBtnDiameter;
         int right = mPathInfo.right + mDragPointRadius;
         int bottom = mPathInfo.bottom + mDragPointRadius;
 
         if (DEBUG) {
-            Log.i(TAG, "reviseParams() >>> width:" + geometryEditWidth + ", height:" + height +
+            Log.i(TAG, "reviseParams() >>> width:" + geometryEditWidth + ", height:" + geometryEditHeight +
                     ", left:" + left + ", top:" + top + ", right:" + right + ", bottom:" + bottom);
         }
 
         if (mEditParams == null) {
-            mEditParams = new LayoutParams(geometryEditWidth, height);
+            mEditParams = new LayoutParams(geometryEditWidth, geometryEditHeight);
         } else {
             mEditParams.width = geometryEditWidth;
-            mEditParams.height = height;
+            mEditParams.height = geometryEditHeight;
         }
-        mEditParams.setMargins(left, top, right, bottom);
+
+        // 当bottom没有设置为0，嵌套在ScrollView中使用处于编辑状态时，整个手写view会被拉伸
+        mEditParams.setMargins(left, top, 0, 0);
     }
 
     //------------------------------事件监听方法-------------------------------start
@@ -446,15 +446,7 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
         return new OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (DEBUG) {
-                    Log.i(TAG, "取消几何图形!!!");
-                }
-
-                if (mHandWritingView != null) {
-                    mHandWritingView.onCancelEditView();
-                }
-                // 重置状态
-                reset();
+                cancelGeometryView();
             }
         };
     }
@@ -464,15 +456,7 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
         return new OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (DEBUG) {
-                    Log.i(TAG, "保存几何图形!!!");
-                }
-
-                if (mHandWritingView != null) {
-                    mHandWritingView.onSaveEditView(mDrawType);
-                }
-                // 重置状态
-                reset();
+                saveGeometryView();
             }
         };
     }
@@ -543,39 +527,43 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
         int tempTop = mPathInfo.top;
         int tempRight = mPathInfo.right;
         int tempBottom = mPathInfo.bottom;
+
         tempLeft += distanceX;
-        if (tempLeft < mLimitLeft) {
-            return;
-        }
-
-        tempTop += distanceY;
-        if (tempTop < mLimitTop) {
-            return;
-        }
-
         tempRight += distanceX;
-        if (tempRight > mLimitRight) {
-            return;
+        tempTop += distanceY;
+        tempBottom += distanceY;
+
+        if (distanceX < 0) {
+            if (tempLeft < mLimitLeft) {
+                tempLeft = mLimitLeft;
+                tempRight = tempLeft + mGeometryRealWidth;
+                distanceX = tempLeft - mPathInfo.left;
+            }
+        } else {
+            if (tempRight > mLimitRight) {
+                tempRight = mLimitRight;
+                tempLeft = tempRight - mGeometryRealWidth;
+                distanceX = tempRight - mPathInfo.right;
+            }
         }
 
-        tempBottom += distanceY;
-        if (tempBottom > mLimitBottom) {
-            return;
+        if (distanceY < 0) {
+            if (tempTop < mLimitTop) {
+                tempTop = mLimitTop;
+                tempBottom = tempTop + mGeometryRealHeight;
+                distanceY = tempTop - mPathInfo.top;
+            }
+        } else {
+            if (tempBottom > mLimitBottom) {
+                tempBottom = mLimitBottom;
+                tempTop = tempBottom - mGeometryRealHeight;
+                distanceY = tempBottom - mPathInfo.bottom;
+            }
         }
 
         for (HandWritingView.PointInfo pointInfo : mPathInfo.pointsList) {
-            int tempX = pointInfo.x;
-            int tempY = pointInfo.y;
-            tempX += distanceX;
-            if (tempX < mLimitLeft || tempX > mLimitRight) {
-                break;
-            }
-            tempY += distanceY;
-            if (tempY < mLimitTop || tempY > mLimitBottom) {
-                break;
-            }
-            pointInfo.x = tempX;
-            pointInfo.y = tempY;
+            pointInfo.x += distanceX;
+            pointInfo.y += distanceY;
         }
 
         mPathInfo.left = tempLeft;
@@ -1335,6 +1323,40 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
         mHandWritingView.setAxisUnit(axisUnit);
     }
     //------------------------------设置几何图形画笔相关属性---------------------end
+
+    /**
+     * 取消可编辑状态下的几何图形
+     */
+    public void cancelGeometryView() {
+        if (DEBUG) {
+            Log.i(TAG, "取消几何图形!!!");
+        }
+
+        if (mHandWritingView != null) {
+            mHandWritingView.onCancelEditView();
+        }
+        // 重置状态
+        reset();
+    }
+
+    /**
+     * 保存可编辑状态下的几何图形
+     */
+    public void saveGeometryView() {
+        if (DEBUG) {
+            Log.i(TAG, "保存几何图形!!!");
+        }
+
+        if (mHandWritingView != null) {
+            mHandWritingView.onSaveEditView(mDrawType);
+        }
+        // 重置状态
+        reset();
+    }
+
+    public boolean isGeometryEditable() {
+        return mHandWritingView.isGeometryEditable();
+    }
 
     public void closeHandWrite() {
         mHandWritingView.closeHandWrite();
