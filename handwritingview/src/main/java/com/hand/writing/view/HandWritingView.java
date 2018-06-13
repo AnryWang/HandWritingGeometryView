@@ -43,6 +43,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.hand.writing.HandWritingViewHelper.DEBUG;
 import static com.hand.writing.math.MathArithmetic.intersect1;
@@ -53,7 +54,6 @@ import static com.hand.writing.math.MathArithmetic.rotateVec;
 
 public class HandWritingView extends View {
     private static String TAG = "HandWritingView";
-    public static final String PENSEC = "sec_e-pen";// 平板自带电子笔的设备名
     public static final String STROKE_VERSION = "1.0";
     // ------------------------------------------------------------------静态常量
     private static final float MAX_PEN_SIZE = 2.5f;// 最大笔迹宽度
@@ -134,6 +134,7 @@ public class HandWritingView extends View {
     private boolean mIsGeometryEditable;// 是否是几何图形编辑状态标记;当为true时,表示当前有未保存的几何图形;
     private IGeometryListener mGeometryListener;// 几何图形监听回调接口
     private int mAxisUnit = 50; //坐标轴单位长度
+    private AtomicInteger mAtomicInteger = new AtomicInteger();
 
     //-----------------------------inner interface--------------------start
     interface SplitCall {
@@ -148,25 +149,25 @@ public class HandWritingView extends View {
     //-----------------------------inner class--------------------start
     /* 存储单个点的数据结构 */
     public class PointInfo {
-        public int x;
-        public int y;
-        public float pressure;
-        public int index = -1;// 几何图形中需要用到的控制点索引
+        int x;
+        int y;
+        float pressure;
+        int index = -1;// 几何图形中需要用到的控制点索引
     }
 
     /* 存储单条线的数据结构 */
     public class PathInfo {
-        public String path;// 字符串，包括线型、颜色、所有点，矩形范围信息
+        String path;// 字符串，包括线型、颜色、所有点，矩形范围信息
 
-        public int drawType;
+        int drawType;
         public int color;
-        public List<PointInfo> pointsList;
+        List<PointInfo> pointsList;
 
         /* 线所在的矩形范围 */
-        public int left;
-        public int top;
-        public int right;
-        public int bottom;
+        int left;
+        int top;
+        int right;
+        int bottom;
     }
 
     // 求圆心与另一个点形成的直线与圆的交点
@@ -579,6 +580,31 @@ public class HandWritingView extends View {
         if (DEBUG) {
             Log.i(TAG, "handleActionMove:" + x + "_" + y + "; old:" + oldX + "_" + oldY);
         }
+
+        //---------------------校验非法的坐标值---------------------s
+        if (isGeometryType()) {
+            // 处理当前无效的几何图形编辑逻辑
+            x = reviseGeometryX(x);
+            y = reviseGeometryY(y);
+        } else {
+            // 处理基本线型超出手写view的范围时逻辑处理
+            if (y > mHeight) {
+                if (mAtomicInteger.get() == 0) {
+                    recordUp(x, mHeight, pressure);
+                    touchUp(x, mHeight, pressure);
+                    mAtomicInteger.getAndIncrement();
+                }
+                return;
+            }
+        }
+        // 处理基本线型从view外围重新进入view时的逻辑处理
+        if (mAtomicInteger.get() > 0) {
+            recordStart(x, mHeight, pressure);
+            touchStart(x, mHeight, pressure);
+            mAtomicInteger.set(0);
+        }
+        //---------------------校验非法的坐标值---------------------e
+
         if (oldX == -1 || oldY == -1) {
             recordStart(x, y, pressure);
             touchStart(x, y, pressure);
@@ -603,8 +629,59 @@ public class HandWritingView extends View {
             actionDownView.dispatchTouchEvent(event);
         }
 
+        //---------------------校验非法的坐标值---------------------s
+        if (isGeometryType()) {
+            // 处理当前无效的几何图形编辑逻辑;
+            x = reviseGeometryX(x);
+            y = reviseGeometryY(y);
+        } else {
+            // 当在view手写区域的外部抬起时,重置状态
+            if (mAtomicInteger.get() > 0) {
+                mAtomicInteger.set(0);
+                oldX = oldY = -1;
+                return;
+            }
+        }
+        //---------------------校验非法的坐标值---------------------e
+
         recordUp(x, y, pressure);
         touchUp(x, y, pressure);
+    }
+
+    /**
+     * 修正几何图形x轴无效坐标
+     */
+    private int reviseGeometryX(int x) {
+        if (mGeometryListener != null) {
+            int dragPointRadius = mGeometryListener.getDragPointRadius();
+            if (x < dragPointRadius) {
+                return dragPointRadius;
+            }
+
+            int tempX = mWidth - dragPointRadius;
+            if (x > tempX) {
+                return tempX;
+            }
+        }
+        return x;
+    }
+
+    /**
+     * 修正几何图形y轴无效坐标
+     */
+    private int reviseGeometryY(int y) {
+        if (mGeometryListener != null) {
+            int limitTop = mGeometryListener.getLimitTop();
+            if (y < limitTop) {
+                return limitTop;
+            }
+
+            int tempY = mHeight - mGeometryListener.getDragPointRadius();
+            if (y > tempY) {
+                return tempY;
+            }
+        }
+        return y;
     }
 
     private void handleActionCancel(MotionEvent event, float pressure, int x, int y) {
@@ -879,6 +956,9 @@ public class HandWritingView extends View {
      * 把几何图形真实地画在bitmap中
      */
     private void drawGeometryBitmap(DrawType drawType) {
+        if (drawType == null) {
+            return;
+        }
         switch (drawType) {
             case TRIANGLE:// 三角形
             case TRAPEZIUM: //梯形
@@ -2407,6 +2487,11 @@ public class HandWritingView extends View {
      * @param color 画笔颜色值
      */
     public void setGeometryPaintColor(@ColorInt int color) {
+        // 处理当前处于几何图形编辑状态时的切换逻辑
+        if (mGeometryListener != null) {
+            mGeometryListener.handleEditableGeometry();
+        }
+
         if (!mIsGeometryEditable && mGeometryPaint != null) {
             mGeometryPaint.setColor(color);
         }
@@ -2418,6 +2503,11 @@ public class HandWritingView extends View {
      * @param style 画笔样式
      */
     public void setGeometryPaintStyle(@NonNull Paint.Style style) {
+        // 处理当前处于几何图形编辑状态时的切换逻辑
+        if (mGeometryListener != null) {
+            mGeometryListener.handleEditableGeometry();
+        }
+
         if (!mIsGeometryEditable && mGeometryPaint != null) {
             mGeometryPaint.setStyle(style);
         }
@@ -2461,6 +2551,11 @@ public class HandWritingView extends View {
             Log.d(TAG, "setPenColor >>> color = " + color);
         }
 
+        // 处理当前处于几何图形编辑状态时的切换逻辑
+        if (mGeometryListener != null) {
+            mGeometryListener.handleEditableGeometry();
+        }
+
         if (mPaint != null) {
             mPaint.setColor(color);
         }
@@ -2493,6 +2588,11 @@ public class HandWritingView extends View {
 
         if (mPaint == null) {
             return;
+        }
+
+        // 处理当前处于几何图形编辑状态时的切换逻辑
+        if (mGeometryListener != null) {
+            mGeometryListener.handleEditableGeometry();
         }
 
         // 重置画笔状态

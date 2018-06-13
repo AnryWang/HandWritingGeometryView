@@ -250,6 +250,47 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
         }
         return isInvalid;
     }
+
+    @Override
+    public void handleEditableGeometry() {
+        saveGeometryView();
+    }
+
+    @Override
+    public int getLimitLeft() {
+        return mLimitLeft;
+    }
+
+    @Override
+    public int getLimitTop() {
+        return mLimitTop;
+    }
+
+    @Override
+    public int getLimitRight() {
+        return mLimitRight;
+    }
+
+    @Override
+    public int getLimitBottom() {
+        return mLimitBottom;
+    }
+
+    @Override
+    public int getGeometryRealWidth() {
+        return mGeometryRealWidth;
+    }
+
+    @Override
+    public int getGeometryRealHeight() {
+        return mGeometryRealHeight;
+    }
+
+    @Override
+    public int getDragPointRadius() {
+        return mDragPointRadius;
+    }
+
     //------------------------------几何图形监听回调方法------------------------end
 
     private void initGeometryView() {
@@ -989,9 +1030,17 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
             Log.i(TAG, "updateDragPointInfo() >>> tempX : " + tempX + ",tempY : " + tempY);
         }
 
-        if (tempX < mLimitLeft || tempY < mLimitTop ||
-                tempX > mLimitRight || tempY > mLimitBottom) {
-            return false;
+        if (tempX < mLimitLeft) {
+            tempX = mLimitLeft;
+        }
+        if (tempY < mLimitTop) {
+            tempY = mLimitTop;
+        }
+        if (tempX > mLimitRight) {
+            tempX = mLimitRight;
+        }
+        if (tempY > mLimitBottom) {
+            tempY = mLimitBottom;
         }
 
         pointInfo.x = tempX;

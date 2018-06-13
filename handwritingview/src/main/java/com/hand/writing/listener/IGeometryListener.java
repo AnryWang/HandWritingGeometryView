@@ -35,4 +35,44 @@ public interface IGeometryListener {
      * @return 无效时返回true;有效时返回false.
      */
     boolean isGeometryInvalid(DrawType drawType, int minX, int minY, int maxX, int maxY);
+
+    /**
+     * 处理当前处于几何图形编辑状态时的切换逻辑
+     */
+    void handleEditableGeometry();
+
+    /**
+     * 获取当前可编辑区域最小左边距
+     */
+    int getLimitLeft();
+
+    /**
+     * 获取当前可编辑区域最小上边距
+     */
+    int getLimitTop();
+
+    /**
+     * 获取当前可编辑区域最大右边距
+     */
+    int getLimitRight();
+
+    /**
+     * 获取当前可编辑区域最大下边距
+     */
+    int getLimitBottom();
+
+    /**
+     * 获取可编辑几何图形的真实宽度
+     */
+    int getGeometryRealWidth();
+
+    /**
+     * 获取可编辑几何图形的真实高度
+     */
+    int getGeometryRealHeight();
+
+    /**
+     * 获取拖拽控制点半径大小
+     */
+    int getDragPointRadius();
 }
