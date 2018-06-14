@@ -99,6 +99,38 @@ public class HandWritingViewHelper {
         getHandWriteViewByStroke(handWritingView, stroke, sDefMinHeight, isCutStrokeHeight);
     }
 
+    public static int toInt(String intStr) {
+        return toInt(intStr, 0);
+    }
+
+    public static int toInt(String intStr, int defValue) {
+        int temp;
+        try {
+            temp = Integer.parseInt(intStr);
+        } catch (NumberFormatException e) {
+            e.printStackTrace();
+            temp = defValue;
+        }
+
+        return temp;
+    }
+
+    public static float toFloat(String floatStr) {
+        return toFloat(floatStr, 0.0f);
+    }
+
+    public static float toFloat(String intStr, float defValue) {
+        float temp;
+        try {
+            temp = Float.parseFloat(intStr);
+        } catch (NumberFormatException e) {
+            e.printStackTrace();
+            temp = defValue;
+        }
+
+        return temp;
+    }
+
     public static void getHandWriteViewByStroke(@NonNull HandWritingView handWritingView, String stroke,
                                                 int minHeight, boolean isCutStrokeHeight) {
         Map<String, Integer> widthHeight = getWidthAndHeight(stroke);
@@ -171,17 +203,17 @@ public class HandWritingViewHelper {
      */
     public static int[] getImageSize(String s) {
         int[] ss = new int[2];
-        String mstrImage;
+        String strImage;
         try {
-            mstrImage = new String(BASE64.decode(s));
-            String[] mstrImageArr = mstrImage.split("&");
-            int mwidth, mheight;
-            if (mstrImageArr.length > 0) {
-                String[] strArr = mstrImageArr[0].split(",");
-                mwidth = HandWritingView.toInt(strArr[0]);
-                mheight = HandWritingView.toInt(strArr[1]);
-                ss[0] = mwidth;
-                ss[1] = mheight;
+            strImage = new String(BASE64.decode(s));
+            String[] strImageArr = strImage.split("&");
+            int width, height;
+            if (strImageArr.length > 0) {
+                String[] strArr = strImageArr[0].split(",");
+                width = toInt(strArr[0]);
+                height = toInt(strArr[1]);
+                ss[0] = width;
+                ss[1] = height;
             }
         } catch (UnsupportedEncodingException e) {
             e.printStackTrace();
@@ -204,11 +236,11 @@ public class HandWritingViewHelper {
         int strokeHeight = 0;
         int strokeWidth = 0;
         if (size.length == 2 || size.length == 4) {
-            width = HandWritingView.toInt(size[0]);
-            height = HandWritingView.toInt(size[1]);
+            width = toInt(size[0]);
+            height = toInt(size[1]);
             if (size.length == 4) {
-                strokeWidth = HandWritingView.toInt(size[2]);
-                strokeHeight = HandWritingView.toInt(size[3]);
+                strokeWidth = toInt(size[2]);
+                strokeHeight = toInt(size[3]);
             }
         }
         Map<String, Integer> map = new HashMap<>();

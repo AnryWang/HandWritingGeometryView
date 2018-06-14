@@ -23,7 +23,6 @@ import android.widget.RelativeLayout;
 import android.widget.Toast;
 
 import com.hand.writing.DrawType;
-import com.hand.writing.IHandWritingViewCache;
 import com.hand.writing.R;
 import com.hand.writing.listener.IGeometryListener;
 
@@ -1516,10 +1515,6 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
         mHandWritingView.setDebug(isDebug);
     }
 
-    public IHandWritingViewCache getHandWritingViewCache() {
-        return mHandWritingView.getHandWritingViewCache();
-    }
-
     public View getActionDownView() {
         return mHandWritingView.getActionDownView();
     }
@@ -1534,10 +1529,6 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
 
     public int getmHeight() {
         return mHandWritingView.getmHeight();
-    }
-
-    public void setHandWritingViewCache(IHandWritingViewCache handWritingViewCache) {
-        mHandWritingView.setHandWritingViewCache(handWritingViewCache);
     }
 
     public void setRecycleListener(HandWritingView.RecycleListener recycleListener) {

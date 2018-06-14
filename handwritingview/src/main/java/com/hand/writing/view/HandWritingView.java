@@ -28,15 +28,12 @@ import android.view.ViewGroup.LayoutParams;
 import android.view.ViewParent;
 import android.view.ViewTreeObserver.OnGlobalLayoutListener;
 import android.widget.AbsListView;
-import android.widget.FrameLayout;
 import android.widget.ListView;
 import android.widget.Toast;
 
 import com.hand.writing.BASE64;
 import com.hand.writing.DrawType;
 import com.hand.writing.HandWritingCanvas;
-import com.hand.writing.HandWritingViewCache;
-import com.hand.writing.IHandWritingViewCache;
 import com.hand.writing.listener.IGeometryListener;
 
 import java.io.ByteArrayOutputStream;
@@ -46,6 +43,8 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.hand.writing.HandWritingViewHelper.DEBUG;
+import static com.hand.writing.HandWritingViewHelper.toFloat;
+import static com.hand.writing.HandWritingViewHelper.toInt;
 import static com.hand.writing.math.MathArithmetic.intersect1;
 import static com.hand.writing.math.MathArithmetic.lerp;
 import static com.hand.writing.math.MathArithmetic.pointToLine;
@@ -62,7 +61,6 @@ public class HandWritingView extends View {
     public static final int AXIS_ARROW_HEIGHT = 10; //坐标轴箭头高度
     public static final int AXIS_OTHER_LENGTH = 4; //坐标轴其它点线段长度
     // ------------------------------------------------------------------全局变量
-    IHandWritingViewCache handWritingViewCache;// 笔记bitmap缓存，暂时没用，只用了里面俩字符串转int或float的函数
     private OnGlobalLayoutListener onGlobalLayoutListener;// 全局布局监听
     RecycleListener recycleListener;
     // -------------------------core
@@ -1988,10 +1986,6 @@ public class HandWritingView extends View {
         }
     }
 
-    public void change(int width, int height) {
-        this.setLayoutParams(new FrameLayout.LayoutParams(width, height));
-    }
-
     //----------------------------恢复笔迹 start----------------------------
 
     /**
@@ -2012,7 +2006,6 @@ public class HandWritingView extends View {
         strokesChanged = false;
         restoreCanvas(str);
         postInvalidate();
-        cacheBitmap(str);
     }
 
     /**
@@ -2042,7 +2035,6 @@ public class HandWritingView extends View {
             return;
         }
 
-        Bitmap cacheBitmap = getCacheBitmap(str);// 读取缓存bitmap，现在没用缓存，这里可去掉
         // 1. 去除宽高,记录宽高 用于检验
         int index = str.indexOf("&");
         if (index != -1) {
@@ -2069,25 +2061,17 @@ public class HandWritingView extends View {
                 this.strokes = new StringBuilder(str);
             }
 
-            // 如果有缓存则绘制缓存的bitmap
-            if (cacheBitmap != null && cacheBitmap.getHeight() == mHeight) {
-                setBitmap(cacheBitmap);
-            } else {
-                restorePoints();
+
+            restorePoints();
                 /* 因为启了子线程去恢复笔记，未恢复之前用户设置的颜色会无效 */
-                if (mSetPenColor != 0) {
-                    mPaint.setColor(mSetPenColor);
-                }
+            if (mSetPenColor != 0) {
+                mPaint.setColor(mSetPenColor);
             }
         } else {
             if (DEBUG) {
                 Log.e(TAG, "invalid Stroke! STROKE_VERSION == " + strokeVersion);
             }
         }
-    }
-
-    private Bitmap getCacheBitmap(String str) {
-        return handWritingViewCache == null ? null : handWritingViewCache.getCacheBitmap(str);// 读取缓存bitmap
     }
 
     /* 将笔记字符串转为数据结构 */
@@ -2124,7 +2108,7 @@ public class HandWritingView extends View {
             public void splitCall(int index, String subString) {
                 switch (index) {
                     case 0:
-                        pathInfo.drawType = toInt(subString, 1);
+                        pathInfo.drawType = toInt(subString);
                         break;
                     case 1:
                         pathInfo.color = toInt(subString);
@@ -2174,7 +2158,7 @@ public class HandWritingView extends View {
                         pointInfo.y = toInt(subString);
                         break;
                     case 2:
-                        pointInfo.pressure = HandWritingViewCache.parseFloat(subString);
+                        pointInfo.pressure = toFloat(subString);
                         break;
                 }
             }
@@ -2310,35 +2294,6 @@ public class HandWritingView extends View {
     }
 
     /**
-     * 文本转换成int类型，增加转换失败的异常捕获
-     */
-    public static int toInt(String text) {
-        return toInt(text, 0);
-    }
-
-    private static int toInt(String text, int value) {
-        if (TextUtils.isEmpty(text)) {
-            return value;
-        }
-
-        int result = value;
-        try {
-            if (text.contains(".")) {
-                result = (int) HandWritingViewCache.parseFloat(text);
-            } else {
-                result = HandWritingViewCache.parseInt(text);
-            }
-        } catch (Exception e) {
-            if (DEBUG) {
-                Log.e(TAG, "toInt fail, text=" + text);
-            }
-            e.printStackTrace();
-        }
-
-        return result;
-    }
-
-    /**
      * 截取字符串
      */
     private void splitString(String content, String d, SplitCall splitCall) {
@@ -2362,24 +2317,6 @@ public class HandWritingView extends View {
         }
     }
 
-    /**
-     * 缓存当前的bitmap
-     */
-    public void cacheBitmap(String cacheKey) {
-        if (TextUtils.isEmpty(cacheKey)) {
-            return;
-        }
-        Bitmap bitmap = getCacheBitmap(cacheKey);// 是否有缓存
-        if (bitmap == null) {
-            if (getWidth() == 0 || getHeight() == 0) {
-                return;
-            }
-            // 缓存
-            if (handWritingViewCache != null) {
-                handWritingViewCache.putCacheBitmap(cacheKey, getBitmap());
-            }
-        }
-    }
     //----------------------------恢复笔迹 end----------------------------
 
     @Override
@@ -2428,7 +2365,6 @@ public class HandWritingView extends View {
             View child = viewGroup.getChildAt(i);
             if (child instanceof HandWritingView) {
                 HandWritingView handWritingView = (HandWritingView) child;
-                handWritingView.cacheBitmap(handWritingView.getStrokes());
                 if (handWritingView.strokesChanged
                         && handWritingView.recycleListener != null) {
                     handWritingView.recycleListener.onRecycleListener();
@@ -2706,10 +2642,6 @@ public class HandWritingView extends View {
         DEBUG = isDebug;
     }
 
-    public IHandWritingViewCache getHandWritingViewCache() {
-        return handWritingViewCache;
-    }
-
     public View getActionDownView() {
         if (DEBUG) {
             Log.i(TAG, "getActionDownView");
@@ -2738,10 +2670,6 @@ public class HandWritingView extends View {
 
     private void setmHeight(int mHeight) {
         this.mHeight = mHeight;
-    }
-
-    public void setHandWritingViewCache(IHandWritingViewCache handWritingViewCache) {
-        this.handWritingViewCache = handWritingViewCache;
     }
 
     public void setRecycleListener(RecycleListener recycleListener) {
