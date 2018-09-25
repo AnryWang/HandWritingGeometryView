@@ -1,6 +1,7 @@
 package com.hand.writing.view;
 
 import android.content.Context;
+import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -16,7 +17,6 @@ import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewTreeObserver;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.RelativeLayout;
@@ -30,11 +30,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static com.hand.writing.HandWritingViewHelper.DEBUG;
-
+import static com.hand.writing.HandWritingViewHelper.IGNORE_TOOL_TYPE_INPUT;
 
 /**
  * Desc:可以画出可编辑状态的几何图形的手写控件
- * Copyright: Copyright (c) 2016
  *
  * @author JiLin
  * @version 1.0
@@ -82,6 +81,31 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
     private RelativeLayout mGeometryRl; //几何图形根布局
     private Path mGeometryPath; //几何图形path路径
     private List<DragInfo> mDragInfoList; //存储当前可拖拽点信息的集合
+    private IGeometryViewListener mGeometryViewListener; //可编辑状态几何图形监听接口
+    private String mGeometryStrokesOnly;
+    private boolean mIsCanScale;
+    private View mScaleView;
+
+    //-----------------------------inner interface--------------------start
+
+    /**
+     * 可编辑状态几何图形监听接口
+     */
+    public interface IGeometryViewListener {
+        /**
+         * 取消可编辑状态几何图形时回调
+         *
+         * @param handWritingGeometryView 当前取消几何图形的手写控件
+         */
+        void onCancelGeometry(HandWritingGeometryView handWritingGeometryView);
+
+        /**
+         * 保存可编辑状态几何图形时回调
+         *
+         * @param handWritingGeometryView 当前保存几何图形的手写控件
+         */
+        void onSaveGeometry(HandWritingGeometryView handWritingGeometryView);
+    }
 
     /**
      * 几何图形可拖拽点信息类(用以标识当前拖拽点可左右移动的距离)
@@ -91,6 +115,7 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
         int distanceX;
         int distanceY;
     }
+    //-----------------------------inner interface--------------------end
 
     public HandWritingGeometryView(Context context) {
         this(context, null);
@@ -102,26 +127,36 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
 
     public HandWritingGeometryView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
-        init(context);
+        init(context, attrs);
     }
 
-    private void init(Context context) {
+    /**
+     * 用代码添加时的构造函数
+     *
+     * @param width  具体宽
+     * @param height 具体高
+     */
+    public HandWritingGeometryView(Context context, int width, int height) {
+        super(context);
+        // 宽、高赋值
+        mWidth = width == 0 ? 0 : width;
+        mHeight = height == 0 ? 0 : height;
+        mHandWritingView = new HandWritingView(context, width, height);
+        LayoutParams layoutParams = new LayoutParams(mWidth, mHeight);
+        addView(mHandWritingView, layoutParams);
+        initDimens();
+        mHandWritingView.setGeometryListener(this);
+    }
+
+    private void init(Context context, AttributeSet attrs) {
+        initDimens();
+        TypedArray ta = context.obtainStyledAttributes(attrs, R.styleable.HandWritingGeometryView);
+        mIsCanScale = ta.getBoolean(R.styleable.HandWritingGeometryView_is_can_scale, false);
+        ta.recycle();
         mHandWritingView = new HandWritingView(context);
         mHandWritingView.setGeometryListener(this);
         LayoutParams layoutParams = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT);
         addView(mHandWritingView, layoutParams);
-
-        getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
-            @Override
-            public void onGlobalLayout() {
-                mWidth = getWidth();
-                mHeight = getHeight();
-                if (mWidth > 0 && mHeight > 0 && getViewTreeObserver().isAlive()) {
-                    initDimens();
-                    getViewTreeObserver().removeGlobalOnLayoutListener(this);
-                }
-            }
-        });
     }
 
     private void initDimens() {
@@ -131,8 +166,6 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
         mDragPointDiameter2 = mDragPointDiameter + mDragPointDiameter;
         mLimitLeft = mDragPointRadius;
         mLimitTop = mImgBtnDiameter + mDragPointRadius;
-        mLimitRight = mWidth - mDragPointRadius;
-        mLimitBottom = mHeight - mDragPointRadius;
 
         if (DEBUG) {
             Log.i(TAG, "initDimens() >>> mDragPointDiameter:" + mDragPointDiameter +
@@ -141,9 +174,34 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
     }
 
     @Override
+    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+//        三星GT-N5100平板，API版本16 >>> JELLY_BEAN 在ScrollView中几何图形编辑状态拖动到底部时，
+//        changed会变成true,bottom高度会高出1，高版本(5.0以上)的版本没有该问题的产生；需要查看两个版本的底层实现...
+//        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.JELLY_BEAN &&
+//                mHandWritingCoreView.isGeometryEditable() &&
+//                bottom - top > mHeight) {
+//            Log.i(TAG, "" + ((FrameLayout) getParent()).isScrollContainer());
+//            super.onLayout(changed, left, top, right, mHeight);
+//        }
+        super.onLayout(changed, left, top, right, bottom);
+
+        if (changed) {
+            mWidth = getWidth();
+            mHeight = getHeight();
+            initLimitBottomAndRight();
+        }
+
+        if (DEBUG) {
+            Log.i(TAG, "onLayout() >>> changed:" + changed + ", isGeometryEditable:"
+                    + mHandWritingView.isGeometryEditable() + ", width:" + mWidth + ", height:" + mHeight +
+                    ", [left:" + left + ", top:" + top + ", right:" + right + ", bottom:" + bottom + "]");
+        }
+    }
+
+    @Override
     public void setLayoutParams(ViewGroup.LayoutParams params) {
         super.setLayoutParams(params);
-        ViewGroup.LayoutParams layoutParams = mHandWritingView.getLayoutParams();
+        LayoutParams layoutParams = (LayoutParams) mHandWritingView.getLayoutParams();
         if (layoutParams == null) {
             layoutParams = new LayoutParams(params.width, params.height);
         } else {
@@ -158,22 +216,45 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
         mHandWritingView.setLayoutParams(layoutParams);
     }
 
+    private void initLimitBottomAndRight() {
+        mLimitRight = mWidth - mDragPointRadius;
+        mLimitBottom = mHeight - mDragPointRadius - 1;
+    }
+
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
-        if (mHandWritingView.isGeometryType()) { //几何图形
+        int toolType = ev.getToolType(0);
+        //输入设备为手写笔
+        if (IGNORE_TOOL_TYPE_INPUT || (mHandWritingView != null && toolType == MotionEvent.TOOL_TYPE_STYLUS)) {
             int x = (int) ev.getX();
             int y = (int) ev.getY();
 
-            if (!mHandWritingView.isRubber() && !mHandWritingView.isGeometryEditable() && (x < mLimitLeft || y < mLimitTop
-                    || x > mLimitRight || y > mLimitBottom)) { //非几何图形编辑状态
-                if (DEBUG) {
-                    Log.i(TAG, "onInterceptTouchEvent() >>> invalid position  x : " + x + ", y : " + y);
+            if (mHandWritingView.isGeometryType()) {
+                // 校验当前几何图形可编辑状态是否有效
+                if (!mHandWritingView.isRubber() &&
+                        !mHandWritingView.isGeometryEditable() &&
+                        (x < mLimitLeft || y < mLimitTop || x > mLimitRight || y > mLimitBottom)) {
+                    if (DEBUG) {
+                        Log.i(TAG, "onInterceptTouchEvent() >>> invalid position  x : " + x + ", y : " + y);
+                    }
+                    showInvalidateGeometryToast();
+                    return true;
                 }
-                Toast.makeText(getContext(), "无效的几何图形起始点!!!", Toast.LENGTH_SHORT).show();
+            } else if (mHandWritingView.isInvalid(x, y)) {
+                // 基本无效线型直接中断触摸事件
                 return true;
             }
         }
+
         return super.onInterceptTouchEvent(ev);
+    }
+
+    @Override
+    public void setOnTouchListener(OnTouchListener l) {
+        if (mHandWritingView == null) {
+            return;
+        }
+        mHandWritingView.setOnTouchListener(l);
     }
 
     //------------------------------几何图形监听回调方法------------------------start
@@ -182,6 +263,19 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
         if (pathInfo == null || pathInfo.pointsList == null || geometryPaint == null || drawType == null) {
             return;
         }
+
+        // 2018/4/17 0017/15:29 解决手写控件嵌套在ScrollView中，可编辑几何图形书写到大于mHeight高度时，导致ScrollView重新调用onLayout()方法，
+        // 最终在调用layoutChildren()方法中的子view调用getVisibility()时报空指针的问题  ------------modify by JiLin-------s
+        if (pathInfo.bottom + mDragPointRadius > mHeight - 1) {
+            if (mHandWritingView != null) {
+                mHandWritingView.onCancelEditView();
+            }
+            // 重置状态
+            reset();
+            showInvalidateGeometryToast();
+            return;
+        }
+        //-------------------------------e---------------------------
 
         // 设置虚线边框画笔相关属性
         if (mEdgePaint == null) {
@@ -238,7 +332,7 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
                 isInvalid = disX < mDragPointDiameter2 || disY < mDragPointDiameter2;
                 break;
             case COORDINATE: //坐标系
-                isInvalid = disX < mDragPointDiameter || disY < mDragPointDiameter;
+                isInvalid = disX < mDragPointDiameter && disY < mDragPointDiameter;
                 break;
             case NUMBER_AXIS: //数轴
                 isInvalid = disX < mDragPointDiameter;
@@ -290,13 +384,61 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
         return mDragPointRadius;
     }
 
+    @Override
+    public boolean isCanScale() {
+        return mIsCanScale;
+    }
+
+    @Override
+    public float getHandWritingX() {
+        return getX();
+    }
+
+    @Override
+    public float getHandWritingY() {
+        return getY();
+    }
+
+    @Override
+    public void onSetX(float revisedX) {
+        setX(revisedX);
+        if (mScaleView != null) {
+            mScaleView.setX(revisedX);
+        }
+    }
+
+    @Override
+    public void onSetY(float revisedY) {
+        setY(revisedY);
+        if (mScaleView != null) {
+            mScaleView.setY(revisedY);
+        }
+    }
+
+    @Override
+    public void onScale(float curScale) {
+        setScaleX(curScale);
+        setScaleY(curScale);
+
+        if (mScaleView != null) {
+            mScaleView.setScaleX(curScale);
+            mScaleView.setScaleY(curScale);
+        }
+    }
     //------------------------------几何图形监听回调方法------------------------end
+
+    public void showInvalidateGeometryToast() {
+        Toast.makeText(getContext(), "请不要超出书写区域!", Toast.LENGTH_SHORT).show();
+    }
 
     private void initGeometryView() {
         // 只有设置了这个属性,才会调用onDraw()方法
         setWillNotDraw(false);
         // 防止重复添加时会有布局残留
         if (mEditGeometryView != null) {
+            if (DEBUG) {
+                Log.i(TAG, "mEditGeometryView != null");
+            }
             removeView(mEditGeometryView);
         }
 
@@ -416,6 +558,9 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
         }
 
         HandWritingView.PointInfo originInfo = pointsList.get(4);
+        if (mHandWritingView == null) {
+            return;
+        }
         mHandWritingView.obtainCoordinatePath(mGeometryPath, mPathInfo.left, mPathInfo.top,
                 mPathInfo.right, mPathInfo.bottom, originInfo.x, originInfo.y,
                 HandWritingView.AXIS_ARROW_HEIGHT, HandWritingView.AXIS_OTHER_LENGTH);
@@ -436,6 +581,9 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
         HandWritingView.PointInfo minInfo = pointsList.get(1);
         HandWritingView.PointInfo originInfo = pointsList.get(2);
 
+        if (mHandWritingView == null) {
+            return;
+        }
         mHandWritingView.obtainNumberAxisPath(mGeometryPath, minInfo.x, maxInfo.x, originInfo.x, originInfo.y,
                 HandWritingView.AXIS_ARROW_HEIGHT, HandWritingView.AXIS_OTHER_LENGTH);
     }
@@ -458,25 +606,26 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
         mGeometryRealWidth = mPathInfo.right - mPathInfo.left;
         mGeometryRealHeight = mPathInfo.bottom - mPathInfo.top;
         int geometryEditWidth = mGeometryRealWidth + mDragPointDiameter;
-        int geometryEditHeight = mGeometryRealHeight + mDragPointDiameter + mImgBtnDiameter;
+        int geometryEditHeight = mGeometryRealHeight + mDragPointDiameter;
+        int height = geometryEditHeight + mImgBtnDiameter;
         int left = mPathInfo.left - mDragPointRadius;
         int top = mPathInfo.top - mDragPointRadius - mImgBtnDiameter;
         int right = mPathInfo.right + mDragPointRadius;
         int bottom = mPathInfo.bottom + mDragPointRadius;
 
         if (DEBUG) {
-            Log.i(TAG, "reviseParams() >>> width:" + geometryEditWidth + ", height:" + geometryEditHeight +
+            Log.i(TAG, "reviseParams() >>> width:" + geometryEditWidth + ", height:" + height +
                     ", left:" + left + ", top:" + top + ", right:" + right + ", bottom:" + bottom);
         }
 
         if (mEditParams == null) {
-            mEditParams = new LayoutParams(geometryEditWidth, geometryEditHeight);
+            mEditParams = new LayoutParams(geometryEditWidth, height);
         } else {
             mEditParams.width = geometryEditWidth;
-            mEditParams.height = geometryEditHeight;
+            mEditParams.height = height;
         }
 
-        // 当bottom没有设置为0，嵌套在ScrollView中使用处于编辑状态时，整个手写view会被拉伸
+//        当bottom没有设置为0，嵌套在ScrollView中使用处于编辑状态时，整个手写view会被拉伸
         mEditParams.setMargins(left, top, 0, 0);
     }
 
@@ -525,25 +674,30 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
 
             @Override
             public boolean onTouch(View v, MotionEvent event) {
-                switch (event.getActionMasked()) {
-                    case MotionEvent.ACTION_DOWN: // 按下
-                        downX = (int) event.getX();
-                        downY = (int) event.getY();
-                        if (DEBUG) {
-                            Log.i(TAG, "按下时坐标x:" + downX + ",y:" + downY);
-                        }
-                        break;
-                    case MotionEvent.ACTION_MOVE: // 移动
-                        int moveX = (int) event.getX();
-                        int moveY = (int) event.getY();
-                        int distanceX = moveX - downX;
-                        int distanceY = moveY - downY;
-                        updateGeometryViewParams(distanceX, distanceY);
-                        break;
-                    case MotionEvent.ACTION_UP: // 抬起
-                        break;
+                int toolType = event.getToolType(0);
+                if (IGNORE_TOOL_TYPE_INPUT || toolType == MotionEvent.TOOL_TYPE_STYLUS) { //输入设备为手写笔
+                    switch (event.getActionMasked()) {
+                        case MotionEvent.ACTION_DOWN: // 按下
+                            downX = (int) event.getX();
+                            downY = (int) event.getY();
+                            if (DEBUG) {
+                                Log.i(TAG, "按下时坐标x:" + downX + ",y:" + downY);
+                            }
+                            break;
+                        case MotionEvent.ACTION_MOVE: // 移动
+                            int moveX = (int) event.getX();
+                            int moveY = (int) event.getY();
+                            int distanceX = moveX - downX;
+                            int distanceY = moveY - downY;
+                            updateGeometryViewParams(distanceX, distanceY);
+                            break;
+                        case MotionEvent.ACTION_UP: // 抬起
+                            break;
+                    }
+                    return true;
+                } else { //不响应非手写笔的触摸事件
+                    return false;
                 }
-                return true;
             }
         };
     }
@@ -643,7 +797,7 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
             mHandWritingView.updateRange(tempLeft, tempTop, tempRight, tempBottom);
         }
 
-        invalidate(tempLeft, tempTop, tempRight, tempBottom);
+//        invalidate(tempLeft, tempTop, tempRight, tempBottom);
     }
 
     @NonNull
@@ -655,33 +809,38 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
 
             @Override
             public boolean onTouch(View v, MotionEvent event) {
-                switch (event.getActionMasked()) {
-                    case MotionEvent.ACTION_DOWN:
-                        int index = (int) v.getTag();
-                        if (DEBUG) {
-                            Log.i(TAG, "getDragOnTouchListener() index >>> " + index);
-                        }
-                        downX = (int) event.getX();
-                        downY = (int) event.getY();
-                        mPointInfo = obtainDragPointInfo(index); //得到需要更新坐标位置的信息点
-                        if (mPointInfo == null) {
-                            return false;
-                        }
-                        break;
-                    case MotionEvent.ACTION_MOVE:
-                        int moveX = (int) event.getX();
-                        int moveY = (int) event.getY();
-                        int distanceX = moveX - downX;
-                        int distanceY = moveY - downY;
-                        updateDragView(mPointInfo, distanceX, distanceY);
-                        break;
-                    case MotionEvent.ACTION_UP:
-                        downX = 0;
-                        downY = 0;
-                        mPointInfo = null;
-                        break;
+                int toolType = event.getToolType(0);
+                if (IGNORE_TOOL_TYPE_INPUT || toolType == MotionEvent.TOOL_TYPE_STYLUS) { //输入设备为手写笔
+                    switch (event.getActionMasked()) {
+                        case MotionEvent.ACTION_DOWN:
+                            int index = (int) v.getTag();
+                            if (DEBUG) {
+                                Log.i(TAG, "getDragOnTouchListener() index >>> " + index);
+                            }
+                            downX = (int) event.getX();
+                            downY = (int) event.getY();
+                            mPointInfo = obtainDragPointInfo(index); //得到需要更新坐标位置的信息点
+                            if (mPointInfo == null) {
+                                return false;
+                            }
+                            break;
+                        case MotionEvent.ACTION_MOVE:
+                            int moveX = (int) event.getX();
+                            int moveY = (int) event.getY();
+                            int distanceX = moveX - downX;
+                            int distanceY = moveY - downY;
+                            updateDragView(mPointInfo, distanceX, distanceY);
+                            break;
+                        case MotionEvent.ACTION_UP:
+                            downX = 0;
+                            downY = 0;
+                            mPointInfo = null;
+                            break;
+                    }
+                    return true;
+                } else {//不响应非手写笔的触摸事件
+                    return false;
                 }
-                return true;
             }
         };
     }
@@ -1018,7 +1177,6 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
         if ((distanceX == 0 && distanceY == 0) || pointInfo == null) {
             return false;
         }
-
 
         int tempX = pointInfo.x;
         tempX += distanceX;
@@ -1359,15 +1517,35 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
 
     //------------------------------设置几何图形画笔相关属性---------------------start
 
+    /**
+     * 设置手写笔迹宽度阈值,用以控制手写笔迹的粗细.
+     *
+     * @param paintSizeThreshold 手写笔迹宽度阈值;范围:1.0f <= paintSizeThreshold <= 4.0f
+     */
+    public void setPaintSizeThreshold(float paintSizeThreshold) {
+        if (mHandWritingView != null) {
+            mHandWritingView.setPaintSizeThreshold(paintSizeThreshold);
+        }
+    }
+
     public void setGeometryPaintColor(@ColorInt int color) {
+        if (mHandWritingView == null) {
+            return;
+        }
         mHandWritingView.setGeometryPaintColor(color);
     }
 
     public void setGeometryPaintStyle(@NonNull Paint.Style style) {
+        if (mHandWritingView == null) {
+            return;
+        }
         mHandWritingView.setGeometryPaintStyle(style);
     }
 
     public void setAxisUnit(int axisUnit) {
+        if (mHandWritingView == null) {
+            return;
+        }
         mHandWritingView.setAxisUnit(axisUnit);
     }
     //------------------------------设置几何图形画笔相关属性---------------------end
@@ -1376,163 +1554,354 @@ public class HandWritingGeometryView extends FrameLayout implements IGeometryLis
      * 取消可编辑状态下的几何图形
      */
     public void cancelGeometryView() {
-        if (DEBUG) {
-            Log.i(TAG, "取消几何图形!!!");
+        boolean isSuccess = false;
+        if (mHandWritingView != null) {
+            isSuccess = mHandWritingView.onCancelEditView();
         }
 
-        if (mHandWritingView != null) {
-            mHandWritingView.onCancelEditView();
+        if (DEBUG) {
+            Log.i(TAG, "取消几何图形!!! isSuccess : " + isSuccess);
         }
+
         // 重置状态
         reset();
+
+        if (isSuccess && mGeometryViewListener != null) {
+            mGeometryViewListener.onCancelGeometry(HandWritingGeometryView.this);
+        }
     }
 
     /**
      * 保存可编辑状态下的几何图形
      */
     public void saveGeometryView() {
-        if (DEBUG) {
-            Log.i(TAG, "保存几何图形!!!");
+        boolean isSuccess = false;
+        if (mHandWritingView != null) {
+            isSuccess = mHandWritingView.onSaveEditView(mDrawType);
         }
 
-        if (mHandWritingView != null) {
-            mHandWritingView.onSaveEditView(mDrawType);
+        if (DEBUG) {
+            Log.i(TAG, "保存几何图形!!! isSuccess : " + isSuccess);
         }
+
+        // 单独存储当前几何图形笔迹信息
+        if (isSuccess && mPathInfo != null) {
+            mGeometryStrokesOnly = mHandWritingView.getGeometryStrokesOnly(mPathInfo.path);
+        }
+
         // 重置状态
         reset();
+
+        if (isSuccess && mGeometryViewListener != null) {
+            mGeometryViewListener.onSaveGeometry(HandWritingGeometryView.this);
+        }
+    }
+
+    public String getGeometryStrokesOnly() {
+        return mGeometryStrokesOnly;
+    }
+
+    /**
+     * 当手写控件支持缩放时,设置跟随手写控件一起缩放的scaleView;如果当前手写控件不支持缩放,设置无效.
+     *
+     * @param scaleView 跟随手写控件一起缩放的View
+     */
+    public void setScaleView(View scaleView) {
+        if (mIsCanScale) {
+            mScaleView = scaleView;
+        }
+    }
+
+    public IGeometryViewListener getGeometryViewListener() {
+        return mGeometryViewListener;
+    }
+
+    /**
+     * 设置可编辑状态几何图形监听接口回调
+     */
+    public void setGeometryViewListener(IGeometryViewListener geometryViewListener) {
+        mGeometryViewListener = geometryViewListener;
     }
 
     public boolean isGeometryEditable() {
-        return mHandWritingView.isGeometryEditable();
+        return mHandWritingView != null && mHandWritingView.isGeometryEditable();
     }
 
     public void closeHandWrite() {
+        if (mHandWritingView == null) {
+            return;
+        }
         mHandWritingView.closeHandWrite();
     }
 
     public void openHandWrite() {
+        if (mHandWritingView == null) {
+            return;
+        }
         mHandWritingView.openHandWrite();
     }
 
     public void setToWriting() {
+        if (mHandWritingView == null) {
+            return;
+        }
         mHandWritingView.setToWriting();
     }
 
     public void setToRubber() {
+        if (mHandWritingView == null) {
+            return;
+        }
+        // 当前为几何图形编辑状态并且切换为"皮擦"状态时,保存当前编辑状态的几何图形
+        if (mHandWritingView.isGeometryEditable()) {
+            saveGeometryView();
+        }
+
         mHandWritingView.setToRubber();
     }
 
     public void restoreToImage(String str) {
+        if (mHandWritingView == null) {
+            if (DEBUG) {
+                Log.i(TAG, "mHandWritingCoreView == null");
+            }
+            return;
+        }
         mHandWritingView.restoreToImage(str);
     }
 
-    public void clear() {
-        setWillNotDraw(true);// 取消onDraw()方法中画出的几何图形
-
-        if (mEditGeometryView != null) { // 移除可编辑view
-            removeView(mEditGeometryView);
+    public void restoreToGeometryOnly(String str) {
+        if (mHandWritingView == null) {
+            return;
         }
+        mHandWritingView.restoreToGeometryOnly(str);
+    }
 
+    public void clear() {
         if (mHandWritingView != null) {
-            mHandWritingView.onCancelEditView();
+            if (mHandWritingView.isGeometryEditable()) {
+                // 取消当前正在编辑的几何图形
+                cancelGeometryView();
+            }
             mHandWritingView.clear();
         }
     }
 
     public void loadBitmap(Bitmap bitmap) {
+        if (mHandWritingView == null) {
+            return;
+        }
         mHandWritingView.loadBitmap(bitmap);
     }
 
     public void loadBitmap(byte[] data) {
+        if (mHandWritingView == null) {
+            return;
+        }
         mHandWritingView.loadBitmap(data);
     }
 
     public String getEncodeBitmap() {
+        if (mHandWritingView == null) {
+            return "";
+        }
         return mHandWritingView.getEncodeBitmap();
     }
 
     public byte[] getBitmapBytes() {
+        if (mHandWritingView == null) {
+            return null;
+        }
         return mHandWritingView.getBitmapBytes();
     }
 
     public void recycleBitmap() {
+        if (mHandWritingView == null) {
+            return;
+        }
         mHandWritingView.recycleBitmap();
     }
 
     public String getStrokes() {
+        if (mHandWritingView == null) {
+            if (DEBUG) {
+                Log.i(TAG, "mHandWritingCoreView == null");
+            }
+            return "";
+        }
+        // 当为几何图形编辑状态,调用该方法时，将会把几何图形笔迹保存到笔迹字符串中
+        if (mHandWritingView.isGeometryEditable()) {
+            saveGeometryView();
+        }
+
         return mHandWritingView.getStrokes();
     }
 
     public boolean isStrokeChange() {
-        return mHandWritingView.isStrokeChange();
+        return mHandWritingView != null && mHandWritingView.isStrokeChange();
     }
 
     public void resetStrokeChange() {
+        if (mHandWritingView == null) {
+            return;
+        }
         mHandWritingView.resetStrokeChange();
     }
 
     public void setPenColor(@ColorInt int color) {
+        if (mHandWritingView == null) {
+            return;
+        }
         mHandWritingView.setPenColor(color);
     }
 
     public int getPenColor() {
+        if (mHandWritingView == null) {
+            return -1;
+        }
         return mHandWritingView.getPenColor();
     }
 
-    public void setDrawType(DrawType type) {
-        mHandWritingView.setDrawType(type);
+    public int getGeometryPenColor() {
+        if (mHandWritingView == null) {
+            return -1;
+        }
+        return mHandWritingView.getGeometryPenColor();
+    }
+
+    public boolean setDrawType(DrawType type) {
+        return mHandWritingView != null && mHandWritingView.setDrawType(type);
+    }
+
+    public void setRubberBitmap(Bitmap rubber) {
+        if (rubber == null) {
+            return;
+        }
+        if (mHandWritingView != null) {
+            mHandWritingView.setRubberBitmap(rubber);
+        }
     }
 
     public DrawType getDrawType() {
+        if (mHandWritingView == null) {
+            return null;
+        }
         return mHandWritingView.getDrawType();
     }
 
+    public boolean isHWCInitFinished() {
+        return mHandWritingView != null && mHandWritingView.isHWCInitFinished();
+    }
+
     public boolean isRubber() {
-        return mHandWritingView.isRubber();
+        return mHandWritingView != null && mHandWritingView.isRubber();
     }
 
     public boolean getCanDraw() {
-        return mHandWritingView.getCanDraw();
+        return mHandWritingView != null && mHandWritingView.getCanDraw();
     }
 
     public void setCanDraw(boolean canDraw) {
+        if (mHandWritingView == null) {
+            return;
+        }
         mHandWritingView.setCanDraw(canDraw);
     }
 
     public Bitmap getBitmap() {
+        if (mHandWritingView == null) {
+            return null;
+        }
         return mHandWritingView.getBitmap();
     }
 
     public void setBitmap(Bitmap mBitmap) {
+        if (mHandWritingView == null) {
+            return;
+        }
         mHandWritingView.setBitmap(mBitmap);
     }
 
     public void setBitmap(Bitmap mBitmap, String stroke) {
+        if (mHandWritingView == null) {
+            return;
+        }
         mHandWritingView.setBitmap(mBitmap, stroke);
     }
 
     public void setDebug(boolean isDebug) {
+        if (mHandWritingView == null) {
+            return;
+        }
         mHandWritingView.setDebug(isDebug);
     }
 
     public View getActionDownView() {
+        if (mHandWritingView == null) {
+            return null;
+        }
         return mHandWritingView.getActionDownView();
     }
 
     public void setActionDownView(View actionDownView) {
+        if (mHandWritingView == null) {
+            return;
+        }
         mHandWritingView.setActionDownView(actionDownView);
     }
 
     public int getmWidth() {
-        return mHandWritingView.getmWidth();
+        if (mHandWritingView == null) {
+            return -1;
+        }
+        return mHandWritingView.getHWWidth();
     }
 
     public int getmHeight() {
-        return mHandWritingView.getmHeight();
+        if (mHandWritingView == null) {
+            return -1;
+        }
+        return mHandWritingView.getHWHeight();
     }
 
-    public void setRecycleListener(HandWritingView.RecycleListener recycleListener) {
-        mHandWritingView.setRecycleListener(recycleListener);
+    public void closeScale() {
+        mIsCanScale = false;
+    }
+
+    /**
+     * 设置当前手写控件支持的最大缩放比例;当手写控件不支持缩放时,设置该值无效.
+     *
+     * @param maxScale 手写控件最大缩放比;取值范围为: 1.0f < maxScale < 5.0f
+     */
+    public void setMaxScale(float maxScale) {
+        if (mIsCanScale && mHandWritingView != null) {
+            mHandWritingView.setMaxScale(maxScale);
+        }
+    }
+
+    /**
+     * 释放手写控件相关资源;该控制权交给应用来控制.
+     */
+    public void release() {
+        mPathInfo = null;
+        mGeometryPaint = null;
+        mEdgePaint = null;
+        mGeometryViewListener = null; //释放几何图形编辑状态监听
+        mScaleView = null; //释放跟随手写控件一起缩放的View
+
+        if (mHandWritingView != null) {
+            mHandWritingView.release();
+        }
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
     }
     //------------------------------HandWritingView中同名方法-----------------------end
 }

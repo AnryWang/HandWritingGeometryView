@@ -10,7 +10,6 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PathEffect;
 import android.graphics.PathMeasure;
-import android.graphics.Point;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.Rect;
@@ -18,23 +17,25 @@ import android.graphics.RectF;
 import android.support.annotation.ColorInt;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.v4.view.ViewPager;
 import android.text.TextUtils;
 import android.util.AttributeSet;
+import android.util.Base64;
 import android.util.Log;
 import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.ViewGroup.LayoutParams;
 import android.view.ViewParent;
-import android.view.ViewTreeObserver.OnGlobalLayoutListener;
-import android.widget.AbsListView;
-import android.widget.ListView;
+import android.widget.ScrollView;
 import android.widget.Toast;
 
-import com.hand.writing.BASE64;
+import com.hand.writing.CustomGestureDetector;
 import com.hand.writing.DrawType;
 import com.hand.writing.HandWritingCanvas;
+import com.hand.writing.HandWritingViewHelper;
 import com.hand.writing.listener.IGeometryListener;
+import com.hand.writing.listener.OnGestureListener;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -43,37 +44,44 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.hand.writing.HandWritingViewHelper.DEBUG;
-import static com.hand.writing.HandWritingViewHelper.toFloat;
-import static com.hand.writing.HandWritingViewHelper.toInt;
+import static com.hand.writing.HandWritingViewHelper.IGNORE_TOOL_TYPE_INPUT;
+import static com.hand.writing.HandWritingViewHelper.getStrokeVersion;
 import static com.hand.writing.math.MathArithmetic.intersect1;
 import static com.hand.writing.math.MathArithmetic.lerp;
 import static com.hand.writing.math.MathArithmetic.pointToLine;
 import static com.hand.writing.math.MathArithmetic.rotateVec;
+import static com.hand.writing.utils.HandWritingCacheUtils.cachedToFloat;
+import static com.hand.writing.utils.HandWritingCacheUtils.cachedToInt;
+import static com.hand.writing.utils.HandWritingCacheUtils.toFloat;
+import static com.hand.writing.utils.HandWritingCacheUtils.toInt;
 
-
+/**
+ * Desc:手写控件核心类
+ *
+ * @author JiLin
+ * @version 1.0
+ * @since 2017/9/18 0018
+ */
 public class HandWritingView extends View {
     private static String TAG = "HandWritingView";
-    public static final String STROKE_VERSION = "1.0";
     // ------------------------------------------------------------------静态常量
     private static final float MAX_PEN_SIZE = 2.5f;// 最大笔迹宽度
     private static final int MIN_PEN_SIZE = 1;// 最小笔迹宽度
-    private static final int PAINT_SIZE = 2;// 默认笔迹宽度
+    private static final int DEFAULT_PAINT_SIZE = 2;// 默认笔迹宽度
+    private static float mPaintSizeThreshold = MAX_PEN_SIZE - MIN_PEN_SIZE;
     public static final int AXIS_ARROW_HEIGHT = 10; //坐标轴箭头高度
     public static final int AXIS_OTHER_LENGTH = 4; //坐标轴其它点线段长度
     // ------------------------------------------------------------------全局变量
-    private OnGlobalLayoutListener onGlobalLayoutListener;// 全局布局监听
-    RecycleListener recycleListener;
     // -------------------------core
-    HandWritingCanvas handWritingCanvas; // 核心画布
-    Path tilePath = new Path();
-    PathMeasure pathMeasure = new PathMeasure();
-    Canvas writingViewCanvas;// 手写view bitmap canvas
-    Bitmap writingViewBitmap;// 手写view的bitmap
+    private HandWritingCanvas mHandWritingCanvas; // 核心画布
+    private Path mTilePath = new Path();
+    private PathMeasure mPathMeasure = new PathMeasure();
+    private Canvas mWritingViewCanvas;// 手写view bitmap canvas
+    private Bitmap mWritingViewBitmap;// 手写view的bitmap
     private Path mPath;// 核心笔画路径
     private Paint mPaint;// 核心画笔
-    int mSetPenColor;// 调用setPenColor()设置的画笔颜色值
-    Paint paintDither = new Paint(Paint.DITHER_FLAG);// 橡皮画笔
-    private Paint mBitmapPaint;// 绘画背景图片画笔
+    private Paint mRubberPaint = new Paint(Paint.DITHER_FLAG | Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);// 橡皮画笔
+    private Paint mBitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);// 绘画背景图片画笔
 
     // -------------------------for touch
     // 记录触击事件的开始点与结束点
@@ -81,38 +89,33 @@ public class HandWritingView extends View {
     private int oldX = -1, oldY = -1;// 用来判断曲线的开始与结束
     private int minX = 0, minY = 0, maxX = 0, maxY = 0;// 这四个变量用来记录划线过程中，当前线条的矩形范围，用来提高擦除时的碰撞检测性能
     private List<PathInfo> pathsList = new ArrayList<>();// 用来存储整个笔记各线条的数据结构，主要擦除时用
-    /**
-     * 传递点击事件
-     */
-    private View actionDownView;
+    private View mActionDownView; // 传递点击事件
     // -------------------------宽 高
     private int mWidth;// view的宽
     private int mHeight;// view的高
     private int mStrokeWidth;// 笔迹的宽
     private int mStrokeHeight;// 笔迹的高
-    private DrawType drawType = DrawType.CURVE;// 笔迹类型,默认为曲线类型
-    private boolean isRubber;// 默认值为false表示书写状态;当isRubber = true时,表示为擦除状态.
+    private DrawType mDrawType = DrawType.CURVE;// 笔迹类型,默认为曲线类型
+    private boolean mIsRubber;// 默认值为false表示书写状态;当isRubber = true时,表示为擦除状态.
     private boolean canDraw;// 是否可被绘画，在onDraw方法 首先监测
     private int validAbs = 2;// 若太小笔记会不好看，若太大，笔记出现的慢
     private boolean hasRange;// 笔迹线条是否具有(左上右下)范围信息,新的笔迹都具有范围信息;旧的笔迹可能没有该信息
     private String[] ranges = new String[5];
     private int eraserSize = 20; // 默认皮擦大小
     private int eraserHalf = eraserSize / 2;
-    // 擦除状态下，小橡皮的范围，也就是那个随笔移动的绿色的小圆圈
-    private Bitmap rubber = Bitmap.createBitmap(eraserSize, eraserSize, Bitmap.Config.ARGB_8888); // 建立一个空的BItMap
-    float lastPressure = 0;
-    float lastLength = 0;
+    private Bitmap mRubber = Bitmap.createBitmap(eraserSize, eraserSize, Bitmap.Config.ARGB_4444); //橡皮擦Bitmap
+    float lastPressure;
+    float lastLength;
     Path linePath = new Path(); // 用以绘制直线的path信息
     private boolean isNeedRedraw = true;// 用于记录是否需要重绘整个画面,因为android的同一条线重绘多次后会变粗，所以会有这种操作
 
     /* 下面用于圈定擦除时应该重绘的局部矩形范围 */
-    private int rectMinX = 0;
-    private int rectMinY = 0;
-    private int rectMaxX = 0;
-    private int rectMaxY = 0;
-    boolean strokesChanged;// 是否正在还原笔记
-    private boolean isStrokeChange;// 笔迹是否改变的标志位
-    StringBuilder strokes;// 用来存储整个笔记各线条的字符串，笔记格式如下:
+    private int rectMinX;
+    private int rectMinY;
+    private int rectMaxX;
+    private int rectMaxY;
+    private boolean mIsStrokesChanged;// 笔迹是否改变的标志位
+    private StringBuilder mStrokes;// 用来存储整个笔记各线条的字符串，笔记格式如下:
     /*@后面是多条线的信息，线用‘=’分开，每条线信息包括：线型、颜色、多个点信息以及这条线的范围
     view宽,view高,笔记宽,笔记高&版本@线型#颜色#x1,y1,压力值;x2,y2,压力值;...#left,top,right,bottom=线型#颜色#x3,y3,压力值;x4,y4,压力值;
     ...#left,top,right,bottom
@@ -121,26 +124,30 @@ public class HandWritingView extends View {
     325,106,0.31040287#288,96,325,119=0#-16776961#370,92,0.41343236;376,89,0.5705198;380,91,0.62366414;381,95,0.66852975;
     382,101,0.715369;383,106,0.7622229;391,105,0.8033477;401,98,0.81574965;414,85,0.6300096;
     420,78,0.4726293;420,78,0.3545941#370,78,420,106*/
-    String oldStrokes = "";
+    private String mOldStrokes = "";
 
     //--------------add by JiLin--------------
     private boolean mIsDispatch; //特殊设备是否响应双指触摸滑动事件标记
-    private boolean mIsTempChangeRubber;// 用以标记当前是否临时修改为擦除状态标记,默认值为false;为true时表示有临时更改
-    private Paint mGeometryPaint;// 几何图形画笔
+    private boolean mIsTempChangeRubber; //用以标记当前是否临时修改为擦除状态标记,默认值为false;为true时表示有临时更改
+    private Paint mGeometryPaint; //几何图形画笔
     private Path mGeometryPath;
     private PathInfo mGeometryTempInfo;
-    private boolean mIsGeometryEditable;// 是否是几何图形编辑状态标记;当为true时,表示当前有未保存的几何图形;
-    private IGeometryListener mGeometryListener;// 几何图形监听回调接口
+    private boolean mIsGeometryEditable; //是否是几何图形编辑状态标记;当为true时,表示当前有未保存的几何图形;
+    private IGeometryListener mGeometryListener; //几何图形监听回调接口
     private int mAxisUnit = 50; //坐标轴单位长度
     private AtomicInteger mAtomicInteger = new AtomicInteger();
+    private volatile boolean mIsHWCInitFinished;
+    private Runnable mRestoreToImageRunnable;
+    private int mStrokesThreshold;
+    private OnGestureListener mOnGestureListener;
+    private CustomGestureDetector mCustomGestureDetector;
+    private float mMinScale = 1.0f; //最小缩放比
+    private float mMaxScale = 5.0f; //最大缩放比
+    private RectF dirtyRect = new RectF();
 
     //-----------------------------inner interface--------------------start
     interface SplitCall {
         void splitCall(int index, String subString);
-    }
-
-    public interface RecycleListener {
-        void onRecycleListener();
     }
     //-----------------------------inner interface--------------------end
 
@@ -158,7 +165,7 @@ public class HandWritingView extends View {
         String path;// 字符串，包括线型、颜色、所有点，矩形范围信息
 
         int drawType;
-        public int color;
+        int color;
         List<PointInfo> pointsList;
 
         /* 线所在的矩形范围 */
@@ -176,11 +183,6 @@ public class HandWritingView extends View {
         CGPoint() {
         }
 
-        public CGPoint(double x, double y) {
-            this.x = x;
-            this.y = y;
-        }
-
         @Override
         public String toString() {
             return "x=" + this.x + ", y=" + this.y;
@@ -189,6 +191,10 @@ public class HandWritingView extends View {
     //-----------------------------inner class--------------------end
 
     //-----------------------------constructor--------------------start
+    public HandWritingView(Context context) {
+        this(context, null);
+    }
+
     public HandWritingView(Context context, AttributeSet attrs) {
         this(context, attrs, 0);
     }
@@ -196,21 +202,12 @@ public class HandWritingView extends View {
     public HandWritingView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
         if (DEBUG) {
-            Log.i(TAG, "constructor");
+            Log.i(TAG, "constructor >>> context = [" + context + "], attrs = ["
+                    + attrs + "], defStyleAttr = [" + defStyleAttr + "]");
         }
         initArgc();
         initCoreWriting();
-        initHandViewObserver();
-    }
-
-    public HandWritingView(Context context) {
-        super(context);
-        if (DEBUG) {
-            Log.i(TAG, "constructor");
-        }
-        initArgc();
-        initCoreWriting();
-        initHandViewObserver();
+        initRubberBitmap();
     }
 
     /**
@@ -222,58 +219,69 @@ public class HandWritingView extends View {
     public HandWritingView(Context context, int width, int height) {
         super(context);
         // 宽、高赋值
-        mWidth = width == 0 ? 1 : width;
-        mHeight = height == 0 ? 1 : height;
+        mWidth = width == 0 ? 0 : width;
+        mHeight = height == 0 ? 0 : height;
         if (DEBUG) {
-            Log.i(TAG, "constructor >>> width:" + mWidth + ",height:" + mHeight);
+            Log.i(TAG, "constructor >>> context = [" + context + "], width = ["
+                    + width + "], height = [" + height + "]");
         }
         // 初始化view宽高
         LayoutParams layoutParams = new LayoutParams(mWidth, mHeight);
         super.setLayoutParams(layoutParams);
         initArgc();
         initCoreWriting();
-        initBitmapCanvasBitmapPaint();
+        initRubberBitmap();
+        initHandWritingCanvas();
     }
 
     /**
      * 参数
      */
     private void initArgc() {
-        strokes = new StringBuilder();
+        mStrokes = new StringBuilder();
         canDraw = true;
-        drawType = DrawType.CURVE;
-        this.isStrokeChange = false;
+        mDrawType = DrawType.CURVE;
+        mIsStrokesChanged = false;
     }
 
     /**
-     * 初始化核心笔迹，Canvas-Path-Paint三剑客 1. 手写路径转换为mPath 2. mPaint讲mPath写到mCanvas 3.
-     * mCanvas写入mBitBmap 4 mBitmapPaint讲mBitmap写到界面上
+     * 初始化手写控件的核心成员
      */
     private void initCoreWriting() {
         // -------------------------初始化path
         mPath = new Path();
-        mPath.reset();
         // -------------------------核心Paint的初始化
-        mPaint = new Paint(Paint.DITHER_FLAG);
-        // mPaint.setAntiAlias(true);
-        // mPaint.setDither(true);
-        mPaint.setColor(Color.BLUE);// 设置画笔为蓝色
-        mPaint.setStyle(Paint.Style.STROKE);// stroke 笔画
-        mPaint.setStrokeWidth(PAINT_SIZE);
+        mPaint = new Paint();
+        mPaint.setAntiAlias(true); //打开抗锯齿
+        /*
+            设置图像抖动（注意，它就叫抖动，不是防抖动，也不是去抖动，有些人在翻译的时候自作主张地加了一个「防」
+            字或者「去」字，这是不对的），是指把图像从较高色彩深度（即可用的颜色数）向较低色彩深度的区域绘制时，
+            在图像中有意地插入噪点，通过有规律地扰乱图像来让图像对于肉眼更加真实的做法。
+            关于图像抖动的详细解释详见 : https://hencoder.com/ui-1-2/
+        */
+        mPaint.setDither(true);
+        /*
+            设置使用双线性过滤来绘制Bitmap;图像在放大绘制的时候，默认使用的是最近邻插值过滤，这种算法简单，
+            但会出现马赛克现象；而如果开启了双线性过滤，就可以让结果图像显得更加平滑。
+        */
+        mPaint.setFilterBitmap(true);
+        mPaint.setColor(Color.BLUE); //设置画笔为蓝色
+        mPaint.setStyle(Paint.Style.STROKE); //stroke笔画
+        mPaint.setStrokeWidth(DEFAULT_PAINT_SIZE);
         mPaint.setStrokeJoin(Paint.Join.ROUND);
         mPaint.setStrokeCap(Paint.Cap.ROUND);
         // -------------------------初始化几何图形画笔
         mGeometryPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         mGeometryPaint.setColor(Color.BLACK);
-        mGeometryPaint.setStrokeWidth(PAINT_SIZE);
+        mGeometryPaint.setStrokeWidth(DEFAULT_PAINT_SIZE);
         mGeometryPaint.setStyle(Paint.Style.STROKE);
         mGeometryPath = new Path();
     }
 
     /**
-     * 初始化mBitmap、mCanvas、mBitmapPaint
+     * 初始化HandWritingCanvas
      */
-    private void initBitmapCanvasBitmapPaint() {
+    private void initHandWritingCanvas() {
         if (mWidth <= 0 || mHeight <= 0) {
             if (DEBUG) {
                 Log.e(TAG, "mWidth or mHeight is 0!!!");
@@ -281,39 +289,22 @@ public class HandWritingView extends View {
             return;
         }
 
-        if (handWritingCanvas != null && handWritingCanvas.width == mWidth
-                && handWritingCanvas.height == mHeight) {
+        if (mHandWritingCanvas != null && mHandWritingCanvas.width == mWidth
+                && mHandWritingCanvas.height == mHeight) {
             return;
         }
-        mBitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
 
-        Paint circlePaint = new Paint(Paint.DITHER_FLAG);
-        circlePaint.setColor(Color.parseColor("#59d1a3"));
-        Canvas canvasTmp = new Canvas(rubber);
-        canvasTmp.drawCircle(eraserHalf, eraserHalf, eraserHalf, circlePaint);
-        handWritingCanvas = new HandWritingCanvas(mWidth, mHeight);
+        mHandWritingCanvas = new HandWritingCanvas(mWidth, mHeight);
+        mIsHWCInitFinished = true;
     }
 
     /**
-     * 初始化视图的布局变化观察值
+     * 初始化默认皮擦
      */
-    private void initHandViewObserver() {
-        onGlobalLayoutListener = new OnGlobalLayoutListener() {
-            @Override
-            public void onGlobalLayout() {
-                // 宽、高赋值
-                mWidth = getWidth();
-                mHeight = getHeight();
-                if (DEBUG) {
-                    Log.i(TAG, "onGlobalLayout() >>> mWidth=" + mWidth + ", mHeight=" + mHeight);
-                }
-                if (mWidth > 0 && mHeight > 0 && getViewTreeObserver().isAlive()) {
-                    initBitmapCanvasBitmapPaint();
-                    getViewTreeObserver().removeGlobalOnLayoutListener(onGlobalLayoutListener);
-                }
-            }
-        };
-        getViewTreeObserver().addOnGlobalLayoutListener(onGlobalLayoutListener);
+    private void initRubberBitmap() {
+        mRubberPaint.setColor(Color.parseColor("#59d1a3"));
+        Canvas canvasTmp = new Canvas(mRubber);
+        canvasTmp.drawCircle(eraserHalf, eraserHalf, eraserHalf, mRubberPaint);
     }
     //-----------------------------constructor--------------------end
 
@@ -346,7 +337,7 @@ public class HandWritingView extends View {
         if (DEBUG) {
             Log.i(TAG, "setToWriting");
         }
-        if (!isRubber) {// 书写状态，跳出
+        if (!mIsRubber) {// 书写状态，跳出
             return;
         }
 
@@ -357,15 +348,15 @@ public class HandWritingView extends View {
     }
 
     private void setToWritingInside() {
-        if (!isRubber) {// 书写状态，跳出
+        if (!mIsRubber) {// 书写状态，跳出
             return;
         }
         if (mPaint != null) {
-            isRubber = false;
-            mPaint.setStrokeWidth(PAINT_SIZE);
+            mIsRubber = false;
+            mPaint.setStrokeWidth(DEFAULT_PAINT_SIZE);
             // 从擦除过来 ，需要加这个，要不就笔画很大
             mPaint.setXfermode(null);
-            setDrawType(drawType);
+            setDrawType(mDrawType);
         }
     }
 
@@ -376,33 +367,28 @@ public class HandWritingView extends View {
         if (DEBUG) {
             Log.i(TAG, "setToRubber");
         }
-        if (isRubber) {// 擦除状态，跳出
+        if (mIsRubber) {// 擦除状态，跳出
             return;
         }
+
+        onSaveEditView(mDrawType);
+
         setToRubberInside();
 
         if (DEBUG) {
-            Log.i(TAG, "this.strokes.toString()=" + this.strokes.toString());
+            Log.i(TAG, "this.mStrokes.toString()=" + this.mStrokes.toString());
         }
 
         // 手写时笔记是直接存储到字符串里的，擦除时则用数据结构来进行碰撞检测，所以在书写和擦除切换时要进行字符串与数据结构的转换
-        strokesToList(strokes.toString());
+        pathsList = strokesToList(mStrokes.toString());
     }
 
     private void setToRubberInside() {
-        if (isRubber) {// 擦除状态，跳出
+        if (mIsRubber) {// 擦除状态，跳出
             return;
         }
 
-        // 以前涂抹方式擦除时使用的，现在按整线擦除用不到了
-        if (mPaint != null) {
-            isRubber = true;
-
-            mPaint.setStrokeWidth(PAINT_SIZE);
-            mPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
-            mPaint.setStyle(Paint.Style.FILL_AND_STROKE);
-            mPaint.setPathEffect(null);
-        }
+        mIsRubber = true;
     }
     // -------------------------writing & rubber------------------end
 
@@ -426,7 +412,8 @@ public class HandWritingView extends View {
         if (changed) {
             mWidth = getWidth();
             mHeight = getHeight();
-            initBitmapCanvasBitmapPaint();
+            mStrokesThreshold = mWidth * mHeight / 3;
+            initHandWritingCanvas();
             String strokesString = getStrokesString();
             if (!TextUtils.isEmpty(strokesString)) {
                 restoreToImage(strokesString);
@@ -436,31 +423,282 @@ public class HandWritingView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        // -------------------------监测工作
-        if (!canDraw) {// 这里通过标志位来控制是否禁止手写
+        /*适配所有带手写笔的平板*//* 主要思想是手指滑动，笔书写 */
+        int toolType = event.getToolType(0);
+        if (IGNORE_TOOL_TYPE_INPUT || toolType == MotionEvent.TOOL_TYPE_STYLUS) { //输入设备为手写笔
+            if (DEBUG) {
+                Log.i(TAG, "input toolType == TOOL_TYPE_STYLUS");
+            }
+        } else if (HandWritingViewHelper.isSpecialDevice()) { //特殊设备允许使用单手指书写
+            if (DEBUG) {
+                Log.i(TAG, "isSpecialDevice() == true!!!");
+            }
+        } else {//非手写笔、非特殊设备
+            return handleGestureEvent(event);
+        }
+
+        if (mActionDownView != null) {
+            mActionDownView.dispatchTouchEvent(event);
+        }
+
+        //这里通过标志位来控制是否禁止手写
+        return canDraw && handleTouchEvent(event);
+    }
+
+    private boolean handleGestureEvent(MotionEvent event) {
+        if (mGeometryListener == null || !mGeometryListener.isCanScale()) {
+            if (DEBUG) {
+                Log.e(TAG, "当前手写控件不允许缩放.mGeometryListener.isCanScale() == false !!!");
+            }
             return false;
         }
 
-        // 2018/2/6 0006/14:24 注释掉手写笔和手指区分  start------------modify by JiLin
-        /*适配所有带手写笔的平板*//* 主要思想是手指滑动，笔书写 */
-//        int toolType = event.getToolType(0);
-//        if (toolType == MotionEvent.TOOL_TYPE_STYLUS) { //输入设备为手写笔
-//            if (DEBUG) {
-//                Log.i(TAG, "input toolType == TOOL_TYPE_STYLUS");
-//            }
-//        } else if (HandWritingViewHelper.isSpecialDevice()) { //特殊设备允许使用单手指书写
-//            if (DEBUG) {
-//                Log.i(TAG, "isSpecialDevice() == true!!!");
-//            }
-//        } else {//非手写笔、非特殊设备
-//            if (actionDownView != null) {
-//                actionDownView.dispatchTouchEvent(event);
-//            }
-//            return false;
-//        }
-        // 2018/2/6 0006/14:24 注释掉手写笔和手指区分  end------------modify by JiLin
+        if (mOnGestureListener == null) {
+            mOnGestureListener = new OnGestureListener() {
+                private float mLimitTop; //上边距限制值
+                private float mLimitLeft; //左边距限制值
+                private float mPreScale = mMinScale; //上一次缩放比
+                private float mScaleWidth; //缩放比例宽度
+                private float mScaleHeight; //缩放比例高度
+                private ViewParent mParentScrollView;
+                private ViewPager mParentViewPager;
 
-        return handleTouchEvent(event);
+                @Override
+                public void onDrag(float dx, float dy) {
+                    if (mGeometryListener == null || mPreScale <= mMinScale ||
+                            mCustomGestureDetector != null && mCustomGestureDetector.isScaling()) {
+                        return; // Do not drag if we are already scaling
+                    }
+                    // 优化拖拽体验,过滤掉迷之抖动
+                    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) {
+                        return;
+                    }
+
+                    float revisedX = getRevisedX(mGeometryListener.getHandWritingX() + dx);
+                    float revisedY = getRevisedY(mGeometryListener.getHandWritingY() + dy);
+
+                    if (DEBUG) {
+                        Log.i(TAG, "mLimitLeft = [" + mLimitLeft + "], mLimitTop = [" + mLimitTop +
+                                "], " + "dx = [" + dx + "], dy = [" + dy + "], revisedX = [" +
+                                revisedX + "], revisedY = [" + revisedY + "]");
+                    }
+
+                    if ((revisedX == mLimitLeft && dx > 0) ||
+                            (revisedX == -mLimitLeft && dx < 0)) {
+                        //此时处于手写控件的边缘位置,请求父类中断事件
+                        switchViewPagerInterceptTouchEvent(false);
+                    } else {
+                        switchViewPagerInterceptTouchEvent(true);
+                    }
+
+                    if ((revisedY == mLimitTop && dx > 0) ||
+                            (revisedY == -mLimitTop && dx < 0)) {
+                        //此时处于手写控件的边缘位置,请求父类中断事件
+                        switchScrollViewInterceptTouchEvent(false);
+                    } else {
+                        switchScrollViewInterceptTouchEvent(true);
+                    }
+
+                    mGeometryListener.onSetX(revisedX);
+                    mGeometryListener.onSetY(revisedY);
+                }
+
+                private float getRevisedX(float x) {
+                    mLimitLeft = (mScaleWidth - mWidth) / 2;
+                    if (x < -mLimitLeft) {
+                        x = -mLimitLeft;
+                    }
+                    if (x > mLimitLeft) {
+                        x = mLimitLeft;
+                    }
+                    return x;
+                }
+
+                private float getRevisedY(float y) {
+                    mLimitTop = (mScaleHeight - mHeight) / 2;
+                    if (y < -mLimitTop) {
+                        y = -mLimitTop;
+                    }
+                    if (y > mLimitTop) {
+                        y = mLimitTop;
+                    }
+                    return y;
+                }
+
+                @Override
+                public void onFling(float startX, float startY, float velocityX, float velocityY) {
+                    if (mPreScale <= mMinScale || mCustomGestureDetector != null && mCustomGestureDetector.isScaling()) {
+                        return; // Do not drag if we are already scaling
+                    }
+                    if (DEBUG) {
+                        Log.i(TAG, "startX = [" + startX + "], startY = [" +
+                                startY + "], velocityX = [" + velocityX + "], velocityY = [" + velocityY + "]");
+                    }
+                }
+
+                @Override
+                public boolean onScaleBegin(ScaleGestureDetector detector) {
+                    if (DEBUG) {
+                        Log.i(TAG, "onScaleBegin()");
+                    }
+                    return true;
+                }
+
+                @Override
+                public boolean onScale(ScaleGestureDetector detector) {
+                    if (mCustomGestureDetector != null && mCustomGestureDetector.isDragging()) {
+                        return true;
+                    }
+
+                    // 获取当前手写控件的缩放比例
+                    float curScale = Math.round(mPreScale * detector.getScaleFactor() * 100) / 100f;
+                    if (DEBUG) {
+                        Log.i(TAG, "mPreScale = [" + mPreScale + "], curScale = [" + curScale + "]");
+                    }
+
+                    // 限制缩放比例
+                    if (curScale < mMinScale || curScale > mMaxScale) {
+                        return true;
+                    }
+
+                    // 计算缩放比例宽高信息
+                    mScaleWidth = mWidth * curScale;
+                    mScaleHeight = mHeight * curScale;
+
+                    if (DEBUG) {
+                        Log.i(TAG, "mScaleWidth = [" + mScaleWidth + "], mScaleHeight = [" + mScaleHeight + "]");
+                    }
+
+                    switchScrollViewInterceptTouchEvent(true);
+//                    switchViewPagerInterceptTouchEvent(true); //当频繁在ViewPager中的条目缩放时,会出现崩溃
+
+                    // 优化当前视图在非中心区域的缩放体验
+                    if (mGeometryListener != null) {
+                        // 计算当前缩放比和最小缩放比的差值
+                        float minOffset = curScale - mMinScale;
+
+                        if (DEBUG) {
+                            Log.i(TAG, "minOffset = [" + minOffset + "]");
+                        }
+
+                        if (minOffset < 0.01f) {
+                            // 当差值过小时可以近似认为当前不需要缩放,设置x和y坐标为0
+                            mGeometryListener.onSetX(0);
+                            mGeometryListener.onSetY(0);
+                        } else {
+                            float x = mGeometryListener.getHandWritingX();
+                            float y = mGeometryListener.getHandWritingY();
+                            // 得到当前缩放比和前一次缩放比差值的绝对值
+                            float scaleAbs = Math.abs(mPreScale - curScale);
+                            // 需特别注意除数为0的情况;分别求出x轴和y轴坐标偏移量
+                            // 注意:当除数为一个非常小的非0数时,求出的值可能不是你想要的
+                            float xOffset = scaleAbs * Math.abs(x) / minOffset;
+                            float yOffset = scaleAbs * Math.abs(y) / minOffset;
+
+
+                            if (curScale < mPreScale) { //缩小手写区
+                                if (x > 0) {
+                                    // 当前视图在左边区域缩小
+                                    mGeometryListener.onSetX(getRevisedX(x - xOffset));
+                                } else if (x < 0) {
+                                    // 当前视图在右边区域缩小
+                                    mGeometryListener.onSetX(getRevisedX(x + xOffset));
+                                }
+
+                                if (y > 0) {
+                                    // 当前视图在上边区域缩小
+                                    mGeometryListener.onSetY(getRevisedY(y - yOffset));
+                                } else if (y < 0) {
+                                    // 当前视图在下边区域缩小
+                                    mGeometryListener.onSetY(getRevisedY(y + yOffset));
+                                }
+                            } else if (mPreScale < curScale) { //放大手写区
+                                if (x > 0) {
+                                    // 当前视图在左边区域放大
+                                    mGeometryListener.onSetX(getRevisedX(x + xOffset));
+                                } else if (x < 0) {
+                                    // 当前视图在右边区域放大
+                                    mGeometryListener.onSetX(getRevisedX(x - xOffset));
+                                }
+
+                                if (y > 0) {
+                                    // 当前视图在上边区域放大
+                                    mGeometryListener.onSetY(getRevisedY(y + yOffset));
+                                } else if (y < 0) {
+                                    // 当前视图在下边区域放大
+                                    mGeometryListener.onSetY(getRevisedY(y - yOffset));
+                                }
+                            }
+                        }
+
+                        mGeometryListener.onScale(curScale);
+                    }
+
+                    mPreScale = curScale;
+                    return false;
+                }
+
+                @Override
+                public void onScaleEnd(ScaleGestureDetector detector) {
+                    if (DEBUG) {
+                        if (mGeometryListener != null) {
+                            Log.i(TAG, "getHandWritingX() = [" + mGeometryListener.getHandWritingX() +
+                                    "], getHandWritingY() = [" + mGeometryListener.getHandWritingY() + "]");
+                        }
+                    }
+                }
+
+                @Override
+                public void release() {
+                    mParentScrollView = null;
+                    mParentViewPager = null;
+                }
+
+                private void switchViewPagerInterceptTouchEvent(boolean disallowIntercept) {
+                    if (mParentViewPager != null) {
+                        mParentViewPager.requestDisallowInterceptTouchEvent(disallowIntercept);
+                    } else {
+                        disallowViewPagerInterceptTouchEvent(HandWritingView.this.getParent(), disallowIntercept);
+                    }
+                }
+
+                private void disallowViewPagerInterceptTouchEvent(ViewParent parent, boolean isIntercept) {
+                    if (parent != null) {
+                        if (parent instanceof ViewPager) {
+                            mParentViewPager = (ViewPager) parent;
+                            parent.requestDisallowInterceptTouchEvent(isIntercept);
+                        } else {
+                            disallowViewPagerInterceptTouchEvent(parent.getParent(), isIntercept);
+                        }
+                    }
+                }
+
+                private void switchScrollViewInterceptTouchEvent(boolean disallowIntercept) {
+                    if (mParentScrollView != null) {
+                        mParentScrollView.requestDisallowInterceptTouchEvent(disallowIntercept);
+                    } else {
+                        disallowScrollViewInterceptTouchEvent(HandWritingView.this.getParent(), disallowIntercept);
+                    }
+                }
+
+                private void disallowScrollViewInterceptTouchEvent(ViewParent parent, boolean isIntercept) {
+                    if (parent != null) {
+                        if (parent instanceof ScrollView) {
+                            mParentScrollView = parent;
+                            parent.requestDisallowInterceptTouchEvent(isIntercept);
+                        } else {
+                            disallowScrollViewInterceptTouchEvent(parent.getParent(), isIntercept);
+                        }
+                    }
+                }
+            };
+        }
+
+        if (mCustomGestureDetector == null) {
+            mCustomGestureDetector = new CustomGestureDetector(getContext(), mOnGestureListener);
+        }
+
+        return mCustomGestureDetector.onTouchEvent(event);
     }
 
     /**
@@ -492,9 +730,12 @@ public class HandWritingView extends View {
                 }
                 // 2017/9/19 0019/11:02 添加几何图形编辑状态判断  ------------modify by JiLin end
                 mIsDispatch = true;
-                handleActionDown(event, pressure, x, y);
-                disableScrollImpl();
-                this.invalidate();
+                if (handleActionDown(pressure, x, y)) {
+                    disableScrollImpl();
+                    this.invalidate();
+                } else {
+                    return false;
+                }
                 break;
             case MotionEvent.ACTION_POINTER_DOWN:
                 mIsDispatch = false;
@@ -503,30 +744,30 @@ public class HandWritingView extends View {
             case MotionEvent.ACTION_MOVE:
                 if (mIsDispatch) {
                     handleActionMove(pressure, x, y);
-//                    this.invalidate();
+                    invalidate();
                 }
                 break;
             case MotionEvent.ACTION_UP:
                 mIsDispatch = true;
-                handleActionUp(event, pressure, x, y);
+                handleActionUp(pressure, x, y);
                 enableScrollImpl();
                 this.invalidate();
                 break;
             case MotionEvent.ACTION_CANCEL:
                 mIsDispatch = true;
-                handleActionCancel(event, pressure, x, y);
+                handleActionCancel(x, y);
                 disableScrollImpl();
                 this.invalidate();
                 break;
-            case 211: //手写笔上按钮按下时down事件,只会调用一次
+            case 211:
                 handleAction211(x, y);
                 this.invalidate();
                 break;
-            case 213: //手写笔上按钮按下时move事件,当笔在屏幕上按下和移动时会重复不断地调用
+            case 213:
                 handleAction213(x, y);
                 this.invalidate();
                 break;
-            case 212: //手写笔上按钮按下时up事件,当笔抬离屏幕时调用一次
+            case 212:
                 handleAction212(x, y);
                 this.invalidate();
                 break;
@@ -539,9 +780,17 @@ public class HandWritingView extends View {
     /**
      * 算出压力，根据压力值来调节笔记宽度
      */
-
     private float obtainPressure(MotionEvent event) {
-        float pressure = lerp(lastPressure, event.getPressure(), 0.15f);
+        float pressure = Math.round(lerp(lastPressure, event.getPressure(), 0.15f) * 100) / 100.0f;
+        if (DEBUG) {
+            Log.i(TAG, "lastPressure_" + lastPressure + ", pressure_" + pressure);
+        }
+
+        // 解决某些设备获取event.getPressure()时得到一个野值导致的异常状况
+        if (pressure > 0.9f) {
+            pressure = 0.9f;
+        }
+
         lastPressure = pressure;
         return pressure;
     }
@@ -562,16 +811,21 @@ public class HandWritingView extends View {
         }
     }
 
-    private void handleActionDown(MotionEvent event, float pressure, int x, int y) {
+    private boolean handleActionDown(float pressure, int x, int y) {
         if (DEBUG) {
             Log.i(TAG, "handleActionDown:" + x + "_" + y);
         }
+
+        if (!mIsRubber && mStrokesThreshold > 0 && getStrokes().length() >= mStrokesThreshold) {
+            Toast.makeText(getContext(), "笔迹已达上限!!!", Toast.LENGTH_SHORT).show();
+            return false;
+        }
+
         recordStart(x, y, pressure);
         touchStart(x, y, pressure);
-        this.isStrokeChange = true;
-        if (actionDownView != null) {
-            actionDownView.dispatchTouchEvent(event);
-        }
+        mIsStrokesChanged = true;
+
+        return true;
     }
 
     private void handleActionMove(float pressure, int x, int y) {
@@ -581,13 +835,16 @@ public class HandWritingView extends View {
 
         //---------------------校验非法的坐标值---------------------s
         if (isGeometryType()) {
-            // 处理当前无效的几何图形编辑逻辑
+            // 处理当前无效的几何图形编辑逻辑;
+            // 2018/5/11 0011/16:47 操作逻辑优化：超出手写区域时不取消几何图形  s------------modify by JiLin
             x = reviseGeometryX(x);
             y = reviseGeometryY(y);
+            // 2018/5/11 0011/16:47 操作逻辑优化：超出手写区域时不取消几何图形  e------------modify by JiLin
         } else {
             // 处理基本线型超出手写view的范围时逻辑处理
             if (y > mHeight) {
                 if (mAtomicInteger.get() == 0) {
+                    //
                     recordUp(x, mHeight, pressure);
                     touchUp(x, mHeight, pressure);
                     mAtomicInteger.getAndIncrement();
@@ -604,9 +861,10 @@ public class HandWritingView extends View {
         //---------------------校验非法的坐标值---------------------e
 
         if (oldX == -1 || oldY == -1) {
+            // 处理down事件丢失时的逻辑处理
             recordStart(x, y, pressure);
             touchStart(x, y, pressure);
-            this.isStrokeChange = true;
+            mIsStrokesChanged = true;
         } else {
             int dx = Math.abs(x - oldX);
             int dy = Math.abs(y - oldY);
@@ -614,24 +872,23 @@ public class HandWritingView extends View {
             if (dx > validAbs || dy > validAbs) {
                 recordMove(x, y, pressure);
                 touchMove(x, y, pressure);
+                mIsStrokesChanged = true;
             }
-            strokesChanged = true;
         }
     }
 
-    private void handleActionUp(MotionEvent event, float pressure, int x, int y) {
+    private void handleActionUp(float pressure, int x, int y) {
         if (DEBUG) {
             Log.i(TAG, "handleActionUp:" + x + "_" + y);
-        }
-        if (actionDownView != null) {
-            actionDownView.dispatchTouchEvent(event);
         }
 
         //---------------------校验非法的坐标值---------------------s
         if (isGeometryType()) {
             // 处理当前无效的几何图形编辑逻辑;
+            // 2018/5/11 0011/16:47 操作逻辑优化：超出手写区域时不取消几何图形  s------------modify by JiLin
             x = reviseGeometryX(x);
             y = reviseGeometryY(y);
+            // 2018/5/11 0011/16:47 操作逻辑优化：超出手写区域时不取消几何图形  e------------modify by JiLin
         } else {
             // 当在view手写区域的外部抬起时,重置状态
             if (mAtomicInteger.get() > 0) {
@@ -682,23 +939,33 @@ public class HandWritingView extends View {
         return y;
     }
 
-    private void handleActionCancel(MotionEvent event, float pressure, int x, int y) {
+    private void handleActionCancel(int x, int y) {
         if (DEBUG) {
-            Log.i(TAG, "handleActionCancel:" + x + "_" + y);
-            Log.i(TAG, "old:" + oldX + "_" + oldY);
+            Log.i(TAG, "handleActionCancel:" + x + "_" + y + "; old:" + oldX + "_" + oldY);
         }
-        if (actionDownView != null) {
-            actionDownView.dispatchTouchEvent(event);
+
+        oldX = oldY = -1;// 重置状态
+
+        // 当擦除状态标记被临时修改时,重置回原来的手写状态.解决手写笔上按钮按下的擦除事件在书写区域外抬起时,手写状态没有重置的问题
+        if (mIsTempChangeRubber) {
+            setToWriting();
         }
-        recordUp(oldX, oldY, pressure);
-        touchUp(oldX, oldY, pressure);
     }
 
+    /**
+     * 手写笔上按钮按下时down事件,只会调用一次
+     */
     private void handleAction211(int x, int y) {
         if (DEBUG) {
             Log.i(TAG, "handleAction211:" + x + "_" + y);
         }
-        if (!isRubber) { // 当前为非擦除状态时,临时设置为擦除状态
+
+        // 回调事件给父View处理相关逻辑
+        if (mGeometryListener != null) {
+            mGeometryListener.handleEditableGeometry();
+        }
+
+        if (!mIsRubber) { // 当前为非擦除状态时,临时设置为擦除状态
             setToRubber();
             mIsTempChangeRubber = true;
         } else {
@@ -708,9 +975,11 @@ public class HandWritingView extends View {
         deleteRecord(x, y);
         oldX = endX = x;
         oldY = endY = y;
-        this.isStrokeChange = true;
     }
 
+    /**
+     * 手写笔上按钮按下时move事件,当笔在屏幕上按下和移动时会重复不断地调用
+     */
     private void handleAction213(int x, int y) {
         if (DEBUG) {
             Log.i(TAG, "handleAction213:" + x + "_" + y);
@@ -724,9 +993,11 @@ public class HandWritingView extends View {
             oldY = y;
             invalidate();
         }
-        strokesChanged = true;
     }
 
+    /**
+     * 手写笔上按钮按下时up事件,当笔抬离屏幕时调用一次
+     */
     private void handleAction212(int x, int y) {
         if (DEBUG) {
             Log.i(TAG, "handleAction212:" + x + "_" + y);
@@ -740,10 +1011,17 @@ public class HandWritingView extends View {
         }
     }
 
+    /**
+     * 当触摸坐标超过手写view范围时，返回true；表示为无效的触摸坐标
+     */
+    public boolean isInvalid(int x, int y) {
+        return x <= 0 || y <= 0 || x >= mWidth || y >= mHeight;
+    }
+
     // -------------------------for touch event start-----------------------------------
 
     private void recordStart(int x, int y, float pressure) {
-        if (isRubber) {
+        if (mIsRubber) {
             isNeedRedraw = false;
             deleteRecord(x, y);
         } else {
@@ -756,11 +1034,11 @@ public class HandWritingView extends View {
             if (isGeometryType()) { //几何图形线型
                 recordGeometryDown();
             } else { //基本线型
-                if (TextUtils.isEmpty(strokes.toString())) {// 第一个
-                    strokes.append(drawType.getCode()).append("#").append(mPaint.getColor())
+                if (TextUtils.isEmpty(mStrokes.toString())) {// 第一个
+                    mStrokes.append(mDrawType.getCode()).append("#").append(mPaint.getColor())
                             .append("#").append(x).append(",").append(y).append(",").append(pressure);
                 } else {
-                    strokes.append("=").append(drawType.getCode()).append("#").append(mPaint.getColor())
+                    mStrokes.append("=").append(mDrawType.getCode()).append("#").append(mPaint.getColor())
                             .append("#").append(x).append(",").append(y).append(",").append(pressure);
                 }
             }
@@ -772,7 +1050,7 @@ public class HandWritingView extends View {
         oldX = endX = x;
         oldY = endY = y;
 
-        switch (drawType) {
+        switch (mDrawType) {
             case CURVE:// 曲线
             case DASH:// 点曲线
                 mPath.reset();
@@ -782,26 +1060,26 @@ public class HandWritingView extends View {
     }
 
     private void recordMove(int x, int y, float pressure) {
-        if (isRubber) { //橡皮状态
+        if (mIsRubber) { //橡皮状态
             deleteRecord(x, y);
         } else {
-            switch (drawType) {
+            switch (mDrawType) {
                 case CURVE: //曲线
                 case DASH: //点曲线
                     updateRange(x, y);
-                    strokes.append(";").append(x).append(",").append(y).append(",").append(pressure);
+                    mStrokes.append(";").append(x).append(",").append(y).append(",").append(pressure);
                     break;
             }
         }
     }
 
     private void touchMove(int x, int y, float pressure) {
-        if (isRubber) {
+        if (mIsRubber) {
             oldX = x;
             oldY = y;
             postInvalidate();
         } else {
-            switch (drawType) {
+            switch (mDrawType) {
                 case CURVE:// 曲线
                 case DASH:// 点曲线
                     drawMovePath(pressure);
@@ -819,11 +1097,13 @@ public class HandWritingView extends View {
     }
 
     private void recordUp(int x, int y, float pressure) {
-        if (isRubber) {
+        if (mIsRubber) {
             deleteRecord(x, y);
             // 如果有线条被删除，在抬起画笔的时候重绘整个笔记，更新strokes的值
             if (isNeedRedraw) {
-                handWritingCanvas.clearCanvas();
+                if (mHandWritingCanvas != null) {
+                    mHandWritingCanvas.clearCanvas();
+                }
                 restorePoints();
                 isNeedRedraw = false;
             }
@@ -832,8 +1112,8 @@ public class HandWritingView extends View {
             if (isGeometryType()) { //几何图形线型
                 recordGeometryUp();
             } else { //基本线型
-                strokes.append(";").append(x).append(",").append(y).append(",").append(pressure);
-                strokes.append("#").append(minX).append(",").append(minY).append(",").append(maxX).append(",").append(maxY);
+                mStrokes.append(";").append(x).append(",").append(y).append(",").append(pressure);
+                mStrokes.append("#").append(minX).append(",").append(minY).append(",").append(maxX).append(",").append(maxY);
             }
         }
     }
@@ -842,15 +1122,15 @@ public class HandWritingView extends View {
         endX = x;
         endY = y;
 
-        if (!isRubber) { //非皮擦状态
+        if (!mIsRubber) { //非皮擦状态
             if (isGeometryType()) { // 几何图形
                 if (mIsGeometryEditable && mGeometryListener != null) { // 几何图形编辑状态
-                    mGeometryListener.onShowEditGeometry(mGeometryTempInfo, mGeometryPaint, drawType);
+                    mGeometryListener.onShowEditGeometry(mGeometryTempInfo, mGeometryPaint, mDrawType);
                 } else { // 非编辑状态的几何图形直接画出来
-                    drawGeometryBitmap(drawType);
+                    drawGeometryBitmap(mDrawType);
                 }
             } else { // 非几何图形
-                switch (drawType) {
+                switch (mDrawType) {
                     case CURVE:// 曲线
                     case DASH:// 点曲线
                         mPath.quadTo(oldX, oldY, (x + oldX) / 2, (y + oldY) / 2);
@@ -860,7 +1140,7 @@ public class HandWritingView extends View {
                         mPath.reset();
                         break;
                     case LINE:// 直线
-                    case DASHLINE:// 点直线
+                    case DASH_LINE:// 点直线
                         drawLine(null, oldX, oldY, x, y);
                         break;
                     case ARROW:// 箭头
@@ -877,19 +1157,24 @@ public class HandWritingView extends View {
 
     @Override
     protected void onDraw(Canvas canvas) {
+        if (DEBUG) {
+            Log.i(TAG, "onDraw()");
+        }
         // 设置画布背景为透明,画图片
         mPaint.setXfermode(null);
-        handWritingCanvas.drawCanvas(canvas, mBitmapPaint);
+        if (mHandWritingCanvas != null) {
+            mHandWritingCanvas.drawCanvas(canvas, mBitmapPaint);
+        }
         if (oldX != -1) {// 我们借用oldX是否等于－1来判定是否画线过程中，另外：old在画直线中，代表起始位置，在曲线中及擦除中代表刚刚走过的位置
             // 画 书写过程
-            if (!isRubber) {// 书写时
-                switch (drawType) {
+            if (!mIsRubber) {// 书写时
+                switch (mDrawType) {
                     case CURVE:// 曲线
                     case DASH:// 点曲线
                         //empty
                         break;
                     case LINE:// 直线
-                    case DASHLINE:// 点直线
+                    case DASH_LINE:// 点直线
                         drawLine(canvas, oldX, oldY, endX, endY);
                         break;
                     case ARROW:// 箭头
@@ -916,7 +1201,8 @@ public class HandWritingView extends View {
                 }
             } else {
                 // 让小橡皮随笔移动而出现
-                canvas.drawBitmap(rubber, oldX - eraserHalf, oldY - eraserHalf, paintDither);
+                canvas.drawBitmap(mRubber, oldX - mRubber.getWidth() / 2,
+                        oldY - mRubber.getHeight() / 2, mRubberPaint);
             }
         }
     }
@@ -930,7 +1216,9 @@ public class HandWritingView extends View {
         linePath.lineTo(toX, toY);
         linePath.close();
         if (canvas == null) {
-            handWritingCanvas.drawPath(linePath, mPaint, 2);
+            if (mHandWritingCanvas != null) {
+                mHandWritingCanvas.drawPath(linePath, mPaint, DEFAULT_PAINT_SIZE);
+            }
             return;
         }
         canvas.drawPath(linePath, mPaint);
@@ -942,7 +1230,9 @@ public class HandWritingView extends View {
     private void drawAL(Canvas canvas, float sx, float sy, float ex, float ey) {
         Path path = obtainALPath(null, sx, sy, ex, ey, 16f, 7f);
         if (canvas == null) {
-            handWritingCanvas.drawPath(path, mPaint, PAINT_SIZE);
+            if (mHandWritingCanvas != null) {
+                mHandWritingCanvas.drawPath(path, mPaint, DEFAULT_PAINT_SIZE);
+            }
         } else {
             canvas.drawPath(path, mPaint);
         }
@@ -954,9 +1244,6 @@ public class HandWritingView extends View {
      * 把几何图形真实地画在bitmap中
      */
     private void drawGeometryBitmap(DrawType drawType) {
-        if (drawType == null) {
-            return;
-        }
         switch (drawType) {
             case TRIANGLE:// 三角形
             case TRAPEZIUM: //梯形
@@ -975,6 +1262,8 @@ public class HandWritingView extends View {
                 break;
             case NUMBER_AXIS: //数轴
                 drawNumberAxis(mGeometryTempInfo);
+                break;
+            default:
                 break;
         }
     }
@@ -996,7 +1285,7 @@ public class HandWritingView extends View {
      * 把三角形或者梯形真实地画在bitmap中
      */
     private void drawTriangleOrTrapezium(List<PointInfo> pointInfoList) {
-        if (handWritingCanvas == null || pointInfoList == null || pointInfoList.size() == 0) {
+        if (mHandWritingCanvas == null || pointInfoList == null || pointInfoList.size() == 0) {
             return;
         }
 
@@ -1012,7 +1301,7 @@ public class HandWritingView extends View {
         }
         mGeometryPath.close();
 
-        handWritingCanvas.drawPath(mGeometryPath, mGeometryPaint, mGeometryPaint.getStrokeWidth());
+        mHandWritingCanvas.drawPath(mGeometryPath, mGeometryPaint, mGeometryPaint.getStrokeWidth());
     }
 
     /**
@@ -1031,7 +1320,7 @@ public class HandWritingView extends View {
      * 把矩形真实地画在bitmap中
      */
     private void drawRectangle(PathInfo pathInfo) {
-        if (handWritingCanvas == null || pathInfo == null) {
+        if (mHandWritingCanvas == null || pathInfo == null) {
             return;
         }
 
@@ -1039,7 +1328,7 @@ public class HandWritingView extends View {
         //Path.Direction.CW顺时针方向 Path.Direction.CCW逆时针方向
         RectF rectF = new RectF(pathInfo.left, pathInfo.top, pathInfo.right, pathInfo.bottom);
         mGeometryPath.addRect(rectF, Path.Direction.CW);
-        handWritingCanvas.drawPath(mGeometryPath, mGeometryPaint, mGeometryPaint.getStrokeWidth());
+        mHandWritingCanvas.drawPath(mGeometryPath, mGeometryPaint, mGeometryPaint.getStrokeWidth());
     }
 
     /**
@@ -1077,7 +1366,7 @@ public class HandWritingView extends View {
      * 把椭圆真实地画在bitmap中
      */
     private void drawOval(PathInfo pathInfo) {
-        if (handWritingCanvas == null || pathInfo == null) {
+        if (mHandWritingCanvas == null || pathInfo == null) {
             return;
         }
 
@@ -1087,7 +1376,7 @@ public class HandWritingView extends View {
         RectF rectF = new RectF(pathInfo.left, pathInfo.top, pathInfo.right, pathInfo.bottom);
         mGeometryPath.addOval(rectF, Path.Direction.CW); //使用path画出椭圆
 
-        handWritingCanvas.drawPath(mGeometryPath, mGeometryPaint, mGeometryPaint.getStrokeWidth());
+        mHandWritingCanvas.drawPath(mGeometryPath, mGeometryPaint, mGeometryPaint.getStrokeWidth());
     }
 
     /**
@@ -1108,7 +1397,7 @@ public class HandWritingView extends View {
      * 把坐标系真实地画在bitmap中
      */
     private void drawCoordinate(PathInfo pathInfo) {
-        if (handWritingCanvas == null || pathInfo == null) {
+        if (mHandWritingCanvas == null || pathInfo == null) {
             return;
         }
         List<PointInfo> pointsList = pathInfo.pointsList;
@@ -1127,7 +1416,7 @@ public class HandWritingView extends View {
         }
 
         // 画坐标系
-        handWritingCanvas.drawPath(mGeometryPath, mGeometryPaint, mGeometryPaint.getStrokeWidth());
+        mHandWritingCanvas.drawPath(mGeometryPath, mGeometryPaint, mGeometryPaint.getStrokeWidth());
         // 还原笔迹样式
         mGeometryPaint.setStyle(tempStyle);
     }
@@ -1150,7 +1439,7 @@ public class HandWritingView extends View {
      * 把数轴真实地画在bitmap中
      */
     private void drawNumberAxis(PathInfo pathInfo) {
-        if (handWritingCanvas == null || pathInfo == null) {
+        if (mHandWritingCanvas == null || pathInfo == null) {
             return;
         }
 
@@ -1169,7 +1458,7 @@ public class HandWritingView extends View {
         }
 
         // 画数轴
-        handWritingCanvas.drawPath(mGeometryPath, mGeometryPaint, mGeometryPaint.getStrokeWidth());
+        mHandWritingCanvas.drawPath(mGeometryPath, mGeometryPaint, mGeometryPaint.getStrokeWidth());
         // 还原笔迹样式
         mGeometryPaint.setStyle(tempStyle);
     }
@@ -1187,13 +1476,13 @@ public class HandWritingView extends View {
     //------------------------------画几何图形 end-----------------------------------
 
     private void drawMovePath(float pressure) {
-        tilePath.reset();
+        mTilePath.reset();
         float penSize;
 
-        if (pressure == 0) {
-            penSize = PAINT_SIZE;
+        if (pressure <= 0) {
+            penSize = DEFAULT_PAINT_SIZE;
         } else {
-            penSize = MIN_PEN_SIZE + pressure * (MAX_PEN_SIZE - MIN_PEN_SIZE);
+            penSize = MIN_PEN_SIZE + pressure * mPaintSizeThreshold;
         }
 
         drawTilePath(penSize);
@@ -1204,14 +1493,13 @@ public class HandWritingView extends View {
      * 分段绘制path，实现了按压感变化笔记宽度
      */
     private float drawTilePath(float penSize) {
-        pathMeasure.setPath(mPath, false);
-        float length = pathMeasure.getLength();
-        pathMeasure.getSegment(lastLength, length, tilePath, true);
-        handWritingCanvas.drawPath(tilePath, mPaint, penSize);
+        mPathMeasure.setPath(mPath, false);
+        float length = mPathMeasure.getLength();
+        mPathMeasure.getSegment(lastLength, length, mTilePath, true);
+        if (mHandWritingCanvas != null) {
+            mHandWritingCanvas.drawPath(mTilePath, mPaint, penSize);
+        }
         lastLength = length;
-        float halfWidth = penSize / 2;
-        invalidate((int) (minX - halfWidth), (int) (minY - halfWidth),
-                (int) (maxX + halfWidth), (int) (maxY + halfWidth)); //局部刷新
         return length;
     }
 
@@ -1401,9 +1689,13 @@ public class HandWritingView extends View {
     /**
      * 当取消保存当前可编辑的几何图形时回调该方法
      */
-    public void onCancelEditView() {
-        mIsGeometryEditable = false;
+    public boolean onCancelEditView() {
+        if (mIsGeometryEditable) {
+            mIsGeometryEditable = false;
+            return true;
+        }
         mGeometryTempInfo = null;
+        return false;
     }
 
     /**
@@ -1411,12 +1703,18 @@ public class HandWritingView extends View {
      *
      * @param drawType 当前编辑状态下的几何图形类型
      */
-    public void onSaveEditView(DrawType drawType) {
-        mIsGeometryEditable = false;
-        updateGeometryPathInfo(); //更新几何图形笔迹信息
-        appendGeometryStrokes(); //拼接几何图形笔迹
-        drawGeometryBitmap(drawType); //真实地画出几何图形
-        mGeometryTempInfo = null;
+    public boolean onSaveEditView(DrawType drawType) {
+        if (mIsGeometryEditable) {
+            mIsGeometryEditable = false;
+            updateGeometryPathInfo(); //更新几何图形笔迹信息
+            appendGeometryStrokes(); //拼接几何图形笔迹
+            drawGeometryBitmap(drawType); //真实地画出几何图形
+            mGeometryTempInfo = null;
+            mIsStrokesChanged = true;
+            return true;
+        }
+
+        return false;
     }
     //---------------------------几何图形编辑状态回调方法 end--------------------------------------------
 
@@ -1434,7 +1732,7 @@ public class HandWritingView extends View {
      */
     private void recordGeometryUp() {
         // 判断几何图形编辑状态是否有效(矩形中的左上右下点距离如果小于拖拽点的直径则为无效的几何图形)
-        if (mGeometryListener != null && mGeometryListener.isGeometryInvalid(drawType, minX, minY, maxX, maxY)) {
+        if (mGeometryListener != null && mGeometryListener.isGeometryInvalid(mDrawType, minX, minY, maxX, maxY)) {
             if (DEBUG) {
                 Log.i(TAG, "invalid Geometry!!!");
             }
@@ -1444,9 +1742,9 @@ public class HandWritingView extends View {
         }
 
         mGeometryTempInfo.color = mGeometryPaint.getColor();
-        mGeometryTempInfo.drawType = drawType.getCode();
+        mGeometryTempInfo.drawType = mDrawType.getCode();
 
-        switch (drawType) {
+        switch (mDrawType) {
             case TRIANGLE: //三角形
                 mGeometryTempInfo.pointsList = recordGeometryTriangle();
                 break;
@@ -1491,10 +1789,10 @@ public class HandWritingView extends View {
         if (mGeometryTempInfo == null) {
             return;
         }
-        if (!TextUtils.isEmpty(strokes.toString())) { //笔迹不为空时拼接连接符
-            strokes.append("=");
+        if (!TextUtils.isEmpty(mStrokes.toString())) { //笔迹不为空时拼接连接符
+            mStrokes.append("=");
         }
-        strokes.append(mGeometryTempInfo.path); //拼接几何图形笔迹字符串
+        mStrokes.append(mGeometryTempInfo.path); //拼接几何图形笔迹字符串
     }
 
     /**
@@ -1538,6 +1836,25 @@ public class HandWritingView extends View {
      */
     private List<PointInfo> recordGeometryCoordinate() {
         List<PointInfo> pointsList = new ArrayList<>(5);
+
+        // 2018/5/11 0011/14:34 优化坐标系操作逻辑：当有任意一条轴的起始跟结束点距离小于拖拽点直径时，按照最小标准展示  ------------modify by JiLin
+        if (mGeometryListener != null) {
+            int dragPointDiameter = mGeometryListener.getDragPointRadius() * 2;
+            int disX;
+            if ((disX = maxX - minX) < dragPointDiameter) {
+                int offsetX = Math.round((dragPointDiameter - disX) * 1.0f / 2);
+                minX -= offsetX;
+                maxX += offsetX;
+            }
+            int disY;
+            if ((disY = maxY - minY) < dragPointDiameter) {
+                int offsetY = Math.round((dragPointDiameter - disY) * 1.0f / 2);
+                minY -= offsetY;
+                maxY += offsetY;
+            }
+        }
+        // 2018/5/11 0011/14:34 优化坐标系操作逻辑：当有任意一条轴的起始跟结束点距离小于拖拽点直径时，按照最小标准展示  ------------modify by JiLin
+
         // 得到中心点坐标
         int midX = (minX + maxX) / 2;
         int midY = (minY + maxY) / 2;
@@ -1627,24 +1944,47 @@ public class HandWritingView extends View {
      * 得到笔迹字符串，可用于保存、恢复笔记
      */
     public String getStrokes() {
-        if (!strokesChanged) {
-            return oldStrokes;
+        if (DEBUG) {
+            Log.i(TAG, "getStrokes() >>> mIsHWCInitFinished_" + mIsHWCInitFinished + " mIsStrokesChanged_" + mIsStrokesChanged);
         }
+
+        if (!mIsStrokesChanged) {
+            if (DEBUG) {
+                Log.i(TAG, "getStrokes() >>> mOldStrokes_" + mOldStrokes);
+            }
+            return mOldStrokes;
+        }
+
         return getStrokesString();
     }
 
     @Nullable
     private String getStrokesString() {
-        if (isRubber) {
+        if (mIsRubber) {
             listToStrokes(true);
         }
-        if (strokes == null || strokes.length() <= 1) {
-            return null;
+
+        if (mStrokes == null || mStrokes.length() <= 1) {
+            if (DEBUG) {
+                Log.i(TAG, "getStrokesString() >>> mStrokes == null || mStrokes.length() <= 1");
+            }
+            return "";
         }
-        String temp = strokes.toString();
+
+        String temp = mStrokes.toString();
+        // 2018/8/3 0003/16:51 新增笔迹字符串中笔迹宽度信息  ------------modify by JiLin
         temp = mWidth + "," + mHeight + "," + mStrokeWidth + ","
-                + mStrokeHeight + "&" + STROKE_VERSION + "@" + temp;
+                + mStrokeHeight + "&" + getStrokeVersion() + "@" + mPaintSizeThreshold + "@" + temp;
+
+        if (DEBUG) {
+            Log.i(TAG, "getStrokesString() >>> " + temp);
+        }
         return temp;
+    }
+
+    public String getGeometryStrokesOnly(@NonNull String geometryStroke) {
+        return mWidth + "," + mHeight + "," + mStrokeWidth + ","
+                + mStrokeHeight + "&" + getStrokeVersion() + "@" + geometryStroke;
     }
 
     // -------------------------for bitmap
@@ -1658,7 +1998,9 @@ public class HandWritingView extends View {
         if (DEBUG) {
             Log.i(TAG, "loadBitmap");
         }
-        handWritingCanvas.drawBitmap(bitmap, mPaint);
+        if (mHandWritingCanvas != null) {
+            mHandWritingCanvas.drawBitmap(bitmap, mPaint);
+        }
     }
 
     /**
@@ -1680,18 +2022,18 @@ public class HandWritingView extends View {
     }
 
     /**
-     * 得到这张笔迹图片的base64 编码
+     * 获取手写笔迹图片的base64编码字符串
      */
     public String getEncodeBitmap() {
         byte[] data = getBitmapBytes();
         if (data == null) {
             return null;
         }
-        return BASE64.encode(data);
+        return Base64.encodeToString(data, Base64.DEFAULT);
     }
 
     /**
-     * 得到这张笔迹图片的byte[]
+     * 获取手写笔迹图片的byte[]
      */
     public byte[] getBitmapBytes() {
         Bitmap bitmap = getBitmap();
@@ -1711,15 +2053,35 @@ public class HandWritingView extends View {
     }
 
     /**
+     * 获取手写笔迹Bitmap
+     */
+    public Bitmap getBitmap() {
+        if (mWritingViewBitmap == null) {
+            if (mWidth == 0 || mHeight == 0) {
+                Log.e(TAG, "mWidth == 0 || mHeight == 0 !!!");
+                return null;
+            } else {
+                mWritingViewBitmap = Bitmap.createBitmap(mWidth, mHeight, Bitmap.Config.ARGB_4444);
+            }
+
+            mWritingViewCanvas = new Canvas(mWritingViewBitmap);
+        }
+
+        mWritingViewBitmap.eraseColor(Color.TRANSPARENT);
+        draw(mWritingViewCanvas);
+        return mWritingViewBitmap;
+    }
+
+    /**
      * 回收图片
      */
     public void recycleBitmap() {
         if (DEBUG) {
             Log.i(TAG, "recycleBitmap");
         }
-        if (writingViewBitmap != null && !writingViewBitmap.isRecycled()) {
-            writingViewBitmap.recycle();
-            writingViewBitmap = null;
+        if (mWritingViewBitmap != null && !mWritingViewBitmap.isRecycled()) {
+            mWritingViewBitmap.recycle();
+            mWritingViewBitmap = null;
         }
     }
 
@@ -1729,23 +2091,23 @@ public class HandWritingView extends View {
         return Math.pow(touchY - y, 2) + Math.pow(touchX - x, 2) <= Math.pow(eraserHalf, 2);
     }
 
-    /* 检查圆与椭圆是否相交，可用于检测橡皮与椭圆的碰撞检测，此方法还未使用，预研 */
+    /* 检查圆与椭圆是否相交，可用于检测橡皮与椭圆的碰撞检测*/
 
     /**
      * @param ovalX   椭圆中心点x轴坐标
      * @param ovalY   椭圆中心点y轴坐标
      * @param a       椭圆x轴半径
      * @param b       椭圆y轴半径
-     * @param circleX 圆中心点x轴坐标
-     * @param circleY 圆中心点y轴坐标
-     * @param r       圆形的半径
+     * @param circleX 橡皮擦中心点x轴坐标
+     * @param circleY 橡皮擦中心点y轴坐标
+     * @param r       橡皮擦的半径
      */
     public boolean checkOvalDelete(int ovalX, int ovalY, int a, int b, int circleX, int circleY, int r) {
         /* 求两圆心形成的直线与圆的两个交点 */
         CGPoint[] points = getPoint(circleX, circleY, r, ovalX, ovalY, circleX, circleY);
 
         if (DEBUG) {
-            Log.i(TAG, "x2=" + points[0].x + "y2=" + points[0].y);
+            Log.i(TAG, "x1=" + points[0].x + "y1=" + points[0].y);
             Log.i(TAG, "x2=" + points[1].x + "y2=" + points[1].y);
         }
 
@@ -1816,8 +2178,7 @@ public class HandWritingView extends View {
 
 		/* 检查两点形成的线段会不会与橡皮轨迹相交 ,这一步检查不能放在下一步之后，会遗露 */
         if (oldX != -1) {
-            if (intersect1(new Point(startX, startY), new Point(endX, endY),
-                    new Point(oldX, oldY), new Point(touchX, touchY))) {
+            if (intersect1(startX, startY, endX, endY, oldX, oldY, touchX, touchY)) {
                 return true;
             }
         }
@@ -1853,6 +2214,7 @@ public class HandWritingView extends View {
             Log.i(TAG, "pathsList.size()=" + pathsList.size());
         }
 
+        long s = System.currentTimeMillis();
         for (int i = 0; i < pathsList.size(); i++) {
             PathInfo pathInfo = pathsList.get(i);
             List<PointInfo> pointsList = pathInfo.pointsList;
@@ -1867,12 +2229,10 @@ public class HandWritingView extends View {
                     || touchX - eraserHalf > pathInfo.right
                     || touchY - eraserHalf > pathInfo.bottom) {
                 if (oldX != -1) {
-                    if (!intersect1(new Point(pathInfo.left, pathInfo.top),
-                            new Point(pathInfo.right, pathInfo.bottom),
-                            new Point(oldX, oldY), new Point(touchX, touchY))
-                            && !intersect1(new Point(pathInfo.left,
-                            pathInfo.bottom), new Point(pathInfo.right,
-                            pathInfo.top), new Point(oldX, oldY), new Point(touchX, touchY))) {
+                    if (!intersect1(pathInfo.left, pathInfo.top, pathInfo.right, pathInfo.bottom,
+                            oldX, oldY, touchX, touchY) &&
+                            !intersect1(pathInfo.left, pathInfo.bottom, pathInfo.right, pathInfo.top,
+                                    oldX, oldY, touchX, touchY)) {
                         continue;
                     }
                 }
@@ -1949,6 +2309,11 @@ public class HandWritingView extends View {
                 // 2017/11/3 0003/13:47 新增几何图形中自动生成的最后一条边的碰撞删除检测  ------------modify by JiLin end
             }
         }
+        long e = System.currentTimeMillis();
+
+        if (DEBUG) {
+            Log.i(TAG, "擦除遍历集合耗时 : [" + (e - s) + "ms]");
+        }
 
         int addedValue = 18;// 两个点之间形成的曲线可能超过点形成的矩形范围，多加一点范围来容错
 
@@ -1958,27 +2323,44 @@ public class HandWritingView extends View {
             rectMaxX += addedValue;
             rectMaxY += addedValue;
 
+            if (DEBUG) {
+                Log.i(TAG, "rectMinX = " + rectMinX + ", rectMinY = " + rectMinY +
+                        ", rectMaxX = " + rectMaxX + ", rectMaxY = " + rectMaxY);
+            }
+
             Rect mSrcRect = new Rect(rectMinX, rectMinY, rectMaxX, rectMaxY);
 
-            mPaint.setStrokeWidth(PAINT_SIZE);
+            mPaint.setStrokeWidth(DEFAULT_PAINT_SIZE);
             mPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
             mPaint.setStyle(Paint.Style.FILL_AND_STROKE);
             mPaint.setPathEffect(null);
 
-            handWritingCanvas.drawRect(mSrcRect, mPaint);
+            if (mHandWritingCanvas != null) {
+                mHandWritingCanvas.drawRect(mSrcRect, mPaint);
+            }
             // 判断哪条线可能过了矩形范围，重新画线
             if (pathsList.size() > 0) {
+                s = System.currentTimeMillis();
                 int pathSize = pathsList.size();
+                int count = 0;
                 for (int i = 0; i < pathSize; i++) {
                     PathInfo pathInfo = pathsList.get(i);
                     if (mSrcRect.intersects(pathInfo.left - addedValue,
                             pathInfo.top - addedValue, pathInfo.right
                                     + addedValue, pathInfo.bottom + addedValue)) {
+                        count++;
                         isNeedRedraw = true;// 其实这里可以再进一步，若被重绘的线也被删了，isNeedRedraw其实不应该是true的
                         drawOrRecordOnePath(pathInfo, true);
                     }
                 }
+                e = System.currentTimeMillis();
+
+                if (DEBUG) {
+                    Log.i(TAG, "pathsList.size() = " + pathSize + ", 重绘次数 : " + count + ", 耗时 : [" + (e - s) + "ms]");
+                }
             }
+
+            mIsStrokesChanged = true;
         }
 
         if (DEBUG) {
@@ -1993,7 +2375,7 @@ public class HandWritingView extends View {
      *
      * @param str 字符串笔记
      */
-    public void restoreToImage(String str) {
+    public void restoreToImage(final String str) {
         if (DEBUG) {
             Log.i(TAG, "restoreToImage() >>> str:" + str);
         }
@@ -2002,10 +2384,41 @@ public class HandWritingView extends View {
         if (TextUtils.isEmpty(str)) {
             return;
         }
-        oldStrokes = str;
-        strokesChanged = false;
-        restoreCanvas(str);
-        postInvalidate();
+
+        mOldStrokes = str;
+        if (mHandWritingCanvas == null) {
+            // 如果代码执行到这里,说明是当前手写控件宽高信息还没有初始化完成时,调用了还原笔迹的方法;
+            // 此时,创建一个Runnable任务,在onAttachedToWindow()方法把该任务发送到消息队列去执行;
+            mRestoreToImageRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    restoreToImage(str);
+                }
+            };
+        } else {
+            mIsStrokesChanged = false;
+            long s = System.currentTimeMillis();
+            restoreCanvas(str, false);
+            long e = System.currentTimeMillis();
+            if (DEBUG) {
+                Log.i(TAG, "restoreToImage() 耗时 : [" + (e - s) + "ms]");
+            }
+            postInvalidate();
+        }
+    }
+
+    public void restoreToGeometryOnly(String str) {
+        if (DEBUG) {
+            Log.i(TAG, "restoreToGeometryOnly() >>> str:" + str);
+        }
+
+        if (TextUtils.isEmpty(str)) {
+            return;
+        }
+
+        mIsStrokesChanged = true;
+        restoreCanvas(str, true);
+        invalidate();
     }
 
     /**
@@ -2013,60 +2426,92 @@ public class HandWritingView extends View {
      */
     public void clear() {
         if (DEBUG) {
-            Log.i(TAG, "clear");
+            Log.i(TAG, "clear()");
         }
-        mStrokeWidth = 0;
-        mStrokeHeight = 0;
-        oldStrokes = "";
-        strokes = new StringBuilder();
-        pathsList.clear();
-        if (handWritingCanvas != null) {
-            handWritingCanvas.clearCanvas();
-        } else {
-            if (DEBUG) {
-                Log.e(TAG, "handWritingCanvas == null!!!!");
-            }
+
+        if (mHandWritingCanvas != null) {
+            mIsStrokesChanged = true;
+            mStrokeWidth = 0;
+            mStrokeHeight = 0;
+            mOldStrokes = "";
+            mStrokes = new StringBuilder();
+            pathsList.clear();
+            mHandWritingCanvas.clearCanvas();
+            this.postInvalidate();
+        } else if (DEBUG) {
+            Log.e(TAG, "clear() >>> mHandWritingCanvas == null!!!!");
         }
-        this.postInvalidate();
     }
 
-    private void restoreCanvas(String str) {
-        if (TextUtils.isEmpty(str)) {
-            return;
-        }
-
-        // 1. 去除宽高,记录宽高 用于检验
+    /**
+     * @param str      笔迹字符串
+     * @param isAppend 是否追加到原有笔迹中
+     */
+    private void restoreCanvas(String str, boolean isAppend) {
         int index = str.indexOf("&");
         if (index != -1) {
+            // 解析笔迹字符串中笔迹宽高信息
+            restoreStrokesRange(str.substring(0, index));
+            // 剔除控件宽高、笔迹宽高信息;
             str = str.substring(index + 1);
         } else {
             if (DEBUG) {
-                Log.e(TAG, "invalid Stroke");
+                Log.e(TAG, "invalid Stroke >>> str.indexOf(&) == -1");
             }
             return;
         }
-        String[] tmp = str.split("@");
-        String strokeVersion = tmp[0];
-        if (TextUtils.isEmpty(strokeVersion)) {
+
+        // 校验笔迹版本信息
+        int versionIndex = str.indexOf("@");
+        String strokeVersion;
+        if (versionIndex != -1) {
+            // 得到笔迹版本号
+            strokeVersion = str.substring(0, versionIndex);
+        } else {
             if (DEBUG) {
-                Log.e(TAG, "invalid Stroke");
+                Log.e(TAG, "invalid Stroke >>> str.indexOf(@) == -1");
             }
             return;
         }
-        if (strokeVersion.equals(STROKE_VERSION)) {
-            str = tmp[tmp.length - 1];
-            strokesToList(str);
+
+        // 开始解析笔迹内容字符串
+        if (getStrokeVersion().equals(strokeVersion)) {
+            str = str.substring(versionIndex + 1);
+            // 2018/8/3 0003/16:45 新增解析笔迹字符串中笔迹宽度信息  s------------modify by JiLin
+            int paintSizeThresholdIndex = str.indexOf("@");
+            float tempPaintSizeThreshold = mPaintSizeThreshold; //记录还原笔迹之前的笔迹宽度阈值
+            if (paintSizeThresholdIndex != -1) {
+                float paintSizeThreshold = toFloat(str.substring(0, paintSizeThresholdIndex));
+                if (paintSizeThreshold < MIN_PEN_SIZE) {
+                    if (DEBUG) {
+                        Log.e(TAG, "invalid paintSizeThreshold! paintSizeThreshold == " + paintSizeThreshold);
+                    }
+                } else {
+                    mPaintSizeThreshold = paintSizeThreshold;
+                }
+                str = str.substring(paintSizeThresholdIndex + 1);
+            }
+            // 2018/8/3 0003/16:45 新增解析笔迹字符串中笔迹宽度信息  e------------modify by JiLin
+
+            // 追加笔迹数据集合到原有集合中
+            if (isAppend && pathsList != null && pathsList.size() > 0) {
+                pathsList.addAll(strokesToList(str));
+            } else {
+                pathsList = strokesToList(str);
+            }
 
             if (hasRange) {
-                this.strokes = new StringBuilder(str);
+                // 追加笔迹字符串到原有笔迹字符串中
+                if (isAppend && !TextUtils.isEmpty(mStrokes)) {
+                    mStrokes.append("=").append(str);
+                } else {
+                    mStrokes = new StringBuilder(str);
+                }
             }
 
-
+            // 开始绘制笔迹数据
             restorePoints();
-                /* 因为启了子线程去恢复笔记，未恢复之前用户设置的颜色会无效 */
-            if (mSetPenColor != 0) {
-                mPaint.setColor(mSetPenColor);
-            }
+            mPaintSizeThreshold = tempPaintSizeThreshold; //恢复笔迹宽度阈值
         } else {
             if (DEBUG) {
                 Log.e(TAG, "invalid Stroke! STROKE_VERSION == " + strokeVersion);
@@ -2074,11 +2519,35 @@ public class HandWritingView extends View {
         }
     }
 
+    /**
+     * 从笔迹字符串范围信息中解析出笔迹宽高
+     */
+    private void restoreStrokesRange(String strokesRange) {
+        int strokesHeightIndex = strokesRange.lastIndexOf(",");
+        int strokesWidthIndex = -1;
+        if (strokesHeightIndex != -1) {
+            mStrokeHeight = Math.max(mStrokeHeight, toInt(strokesRange.substring(strokesHeightIndex + 1)));
+            strokesRange = strokesRange.substring(0, strokesHeightIndex);
+            strokesWidthIndex = strokesRange.lastIndexOf(",");
+
+            if (DEBUG) {
+                Log.i(TAG, "mStrokeHeight = [" + mStrokeHeight + "]");
+            }
+        }
+
+        if (strokesWidthIndex != -1) {
+            mStrokeWidth = Math.max(mStrokeWidth, toInt(strokesRange.substring(strokesWidthIndex + 1)));
+
+            if (DEBUG) {
+                Log.i(TAG, "mStrokeWidth = [" + mStrokeWidth + "]");
+            }
+        }
+    }
+
     /* 将笔记字符串转为数据结构 */
-    private void strokesToList(String str) {
-        mStrokeWidth = 0;
-        mStrokeHeight = 0;
+    private List<PathInfo> strokesToList(String str) {
         final ArrayList<PathInfo> paths = new ArrayList<>();
+        long s = System.currentTimeMillis();
         splitString(str, "=", new SplitCall() {
             @Override
             public void splitCall(int index, String subString) {
@@ -2095,23 +2564,28 @@ public class HandWritingView extends View {
                 paths.add(pathInfo);
             }
         });
+        long e = System.currentTimeMillis();
 
-        pathsList = paths;
+        if (DEBUG) {
+            Log.i(TAG, "strokesToList()方法总耗时 : [" + (e - s) + "ms]");
+        }
+
+        return paths;
     }
 
     /**
      * 动作string转换为PathInfo
      */
-    private void eventStrokes(final String stokersToken, final PathInfo pathInfo) {
-        splitString(stokersToken, "#", new SplitCall() {
+    private void eventStrokes(final String subStokers, final PathInfo pathInfo) {
+        splitString(subStokers, "#", new SplitCall() {
             @Override
             public void splitCall(int index, String subString) {
                 switch (index) {
                     case 0:
-                        pathInfo.drawType = toInt(subString);
+                        pathInfo.drawType = cachedToInt(subString);
                         break;
                     case 1:
-                        pathInfo.color = toInt(subString);
+                        pathInfo.color = cachedToInt(subString);
                         break;
                     case 2:
                         splitString(subString, ";", new SplitCall() {
@@ -2158,21 +2632,18 @@ public class HandWritingView extends View {
                         pointInfo.y = toInt(subString);
                         break;
                     case 2:
-                        pointInfo.pressure = toFloat(subString);
+                        pointInfo.pressure = cachedToFloat(subString);
                         break;
                 }
             }
         });
-
-        mStrokeWidth = Math.max(mStrokeWidth, pointInfo.x);
-        mStrokeHeight = Math.max(mStrokeHeight, pointInfo.y);
 
         pathInfo.pointsList.add(pointInfo);
     }
 
     /* 将数据结构转为笔记字符串 */
     private void listToStrokes(boolean hasRange) {
-        this.strokes = new StringBuilder();
+        mStrokes = new StringBuilder();
         int pathSize = pathsList.size();
         boolean first = true;
         mStrokeWidth = 0;
@@ -2181,33 +2652,43 @@ public class HandWritingView extends View {
             PathInfo pathInfo = pathsList.get(i);
             if (hasRange) {
                 if (first) {
-                    this.strokes.append(pathInfo.path);
+                    mStrokes.append(pathInfo.path);
                     first = false;
                 } else {
-                    this.strokes.append("=").append(pathInfo.path);
+                    mStrokes.append("=").append(pathInfo.path);
                 }
 
                 mStrokeWidth = Math.max(mStrokeWidth, pathInfo.right);
                 mStrokeHeight = Math.max(mStrokeHeight, pathInfo.bottom);
             } else {
-                drawOrRecordOnePath(pathsList.get(i), false);
+                drawOrRecordOnePath(pathInfo, false);
             }
         }
     }
 
     /* 恢复笔记时用到的子函数 */
     private void restorePoints() {
-        if (handWritingCanvas == null) {
+        if (mHandWritingCanvas == null) {
+            if (DEBUG) {
+                Log.e(TAG, "restorePoints() >>> mHandWritingCanvas == null");
+            }
             return;
         }
-        int pathSize = pathsList.size();
-        for (int i = 0; i < pathSize; i++) {
+
+        long s = System.currentTimeMillis();
+        for (int i = 0; i < pathsList.size(); i++) {
             drawOrRecordOnePath(pathsList.get(i), true);
         }
+        long e = System.currentTimeMillis();
+
+        if (DEBUG) {
+            Log.i(TAG, "restorePoints()方法耗时 : [" + (e - s) + "ms]");
+        }
+
         if (!hasRange) {// 若是旧的的没有范围和压力值的笔记格式，会在这里将它整合成新的笔记格式
             listToStrokes(false);
-            isStrokeChange = true;
-            strokesToList(strokes.toString());
+            mIsStrokesChanged = true;
+            pathsList = strokesToList(mStrokes.toString());
             hasRange = true;
         }
     }
@@ -2215,16 +2696,24 @@ public class HandWritingView extends View {
     /* 恢复笔记中的用到的函数，用来划一条线 */
     private void drawOrRecordOnePath(PathInfo pathInfo, boolean isDraw) {
         /* 记录划线之前的状态，划完后要恢复到原来状态 */
-        boolean isRubberTmp = isRubber;
-        DrawType drawTypeTmp = drawType;
-        int penColor = getPenColor(); //得到画笔原始颜色
+        boolean isRubberSrc = mIsRubber;
+        DrawType drawTypeSrc = mDrawType;
+        int penColorSrc = getPenColor(); //得到画笔原始颜色
+        int geometryPenColorSrc = getGeometryPenColor(); //得到几何画笔原始颜色
 
 		/* 划线 */
         setToWritingInside();
-        mPaint.setColor(pathInfo.color);
-        setDrawType(DrawType.toDrawType(pathInfo.drawType));
+
+        DrawType tempDrawType = DrawType.toDrawType(pathInfo.drawType);
+        setDrawType(tempDrawType);
+        if (isGeometryType()) {
+            mGeometryPaint.setColor(pathInfo.color);
+        } else {
+            mPaint.setColor(pathInfo.color);
+        }
+
         List<PointInfo> pointsList = pathInfo.pointsList;
-        switch (drawType) {
+        switch (mDrawType) {
             case TRIANGLE: //三角形
             case TRAPEZIUM: //梯形
                 drawTriangleOrTrapezium(pointsList);
@@ -2245,7 +2734,7 @@ public class HandWritingView extends View {
             case LINE: //直线
             case DASH: //点曲线
             case ARROW: //箭头
-            case DASHLINE: //点直线
+            case DASH_LINE: //点直线
             default:
                 //恢复基础线型
                 int pointSize = pointsList.size();
@@ -2279,37 +2768,91 @@ public class HandWritingView extends View {
                 }
         }
 
-		/* 恢复到原来状态 */
-        if (drawTypeTmp != drawType) {
-            setDrawType(drawTypeTmp);
+        if (isGeometryType()) {
+            // 重置几何图形画笔颜色
+            if (geometryPenColorSrc != getGeometryPenColor()) {
+                setGeometryPaintColor(geometryPenColorSrc);
+            }
+        } else {
+            // 重置画笔颜色
+            if (penColorSrc != getPenColor()) {
+                setPenColor(penColorSrc);
+            }
         }
 
-        if (penColor != getPenColor()) { //重置画笔颜色
-            setPenColor(penColor);
+        /* 恢复到原来状态 */
+        if (drawTypeSrc != mDrawType) {
+            setDrawType(drawTypeSrc);
         }
 
-        if (isRubberTmp) {
+        if (isRubberSrc) {
             setToRubberInside();
+        }
+    }
+
+    private void deleteOnePath(PathInfo deletePathInfo) {
+        mPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
+        mPaint.setStyle(Paint.Style.FILL_AND_STROKE);
+        mPaint.setPathEffect(null);
+
+        List<PointInfo> pointsList = deletePathInfo.pointsList;
+        int pointSize = pointsList.size();
+        Path path = new Path();
+        for (int j = 0; j < pointSize; j++) {
+            PointInfo pointInfo = pointsList.get(j);
+            int x = pointInfo.x;
+            int y = pointInfo.y;
+            if (j == 0) {
+                path.moveTo(x, y);
+            } else {
+                path.lineTo(x, y);
+            }
+        }
+
+        Path destPath = new Path();
+        if (mHandWritingCanvas != null) {
+            mPaint.setTextSize(10);
+            mPaint.getFillPath(path, destPath);
+            mHandWritingCanvas.drawPath(destPath, mPaint);
+        }
+
+        if (pathsList.size() > 0) {
+            long s = System.currentTimeMillis();
+            int pathSize = pathsList.size();
+            int count = 0;
+            for (int i = 0; i < pathSize; i++) {
+                PathInfo pathInfo = pathsList.get(i);
+                destPath.computeBounds(dirtyRect, false);
+                if (dirtyRect.intersects(pathInfo.left, pathInfo.top, pathInfo.right, pathInfo.bottom)) {
+                    count++;
+                    drawOrRecordOnePath(pathInfo, true);
+                }
+            }
+            long e = System.currentTimeMillis();
+
+            if (DEBUG) {
+                Log.i(TAG, "pathsList.size() = " + pathSize + ", 重绘次数 : " + count + ", 耗时 : [" + (e - s) + "ms]");
+            }
         }
     }
 
     /**
      * 截取字符串
      */
-    private void splitString(String content, String d, SplitCall splitCall) {
+    private void splitString(String content, String separator, SplitCall splitCall) {
         int startIndex = 0;
         int endIndex;
         int index = 0;
-        int dLength = d.length();
+        int separatorLength = separator.length();
         int contentLength = content.length();
         while (true) {
-            endIndex = content.indexOf(d, startIndex);
+            endIndex = content.indexOf(separator, startIndex);
             if (endIndex == -1) {
                 endIndex = contentLength;
             }
             String subString = content.substring(startIndex, endIndex);
             splitCall.splitCall(index, subString);
-            startIndex = endIndex + dLength;
+            startIndex = endIndex + separatorLength;
             index++;
             if (endIndex == contentLength) {
                 break;
@@ -2322,18 +2865,16 @@ public class HandWritingView extends View {
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        View view = this;
-        while (true) {
-            ViewParent viewParent = view.getParent();
-            if (viewParent instanceof ListView) {
-                ListView listView = (ListView) viewParent;
-                setRecycleListener(listView);
-                break;
-            }
-            if (viewParent instanceof View) {
-                view = (View) viewParent;
-            } else {
-                break;
+        if (DEBUG) {
+            Log.i(TAG, "onAttachedToWindow()");
+        }
+
+        if (mRestoreToImageRunnable != null) {
+            post(mRestoreToImageRunnable);
+            mRestoreToImageRunnable = null;
+
+            if (DEBUG) {
+                Log.i(TAG, "mRestoreToImageRunnable");
             }
         }
     }
@@ -2341,52 +2882,23 @@ public class HandWritingView extends View {
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
-        getViewTreeObserver().removeGlobalOnLayoutListener(onGlobalLayoutListener);
-    }
 
-    /**
-     * 如果是在listView中 则实现监听
-     */
-    private void setRecycleListener(ListView listView) {
-        listView.setRecyclerListener(new AbsListView.RecyclerListener() {
-            @Override
-            public void onMovedToScrapHeap(View view) {
-                ViewGroup viewGroup = (ViewGroup) view;
-                callHandWritingRecycle(viewGroup);
-            }
-        });
-    }
-
-    /**
-     * 回调所有手写View
-     */
-    public static void callHandWritingRecycle(ViewGroup viewGroup) {
-        for (int i = 0; i < viewGroup.getChildCount(); i++) {
-            View child = viewGroup.getChildAt(i);
-            if (child instanceof HandWritingView) {
-                HandWritingView handWritingView = (HandWritingView) child;
-                if (handWritingView.strokesChanged
-                        && handWritingView.recycleListener != null) {
-                    handWritingView.recycleListener.onRecycleListener();
-                }
-            } else if (child instanceof ViewGroup) {
-                callHandWritingRecycle((ViewGroup) child);
-            }
+        // 存储未保存的几何图形笔迹字符串
+        if (mIsGeometryEditable) {
+            updateGeometryPathInfo(); //更新几何图形笔迹信息
+            appendGeometryStrokes(); //拼接几何图形笔迹
         }
-    }
 
-    /**
-     * 智通课堂同屏使用该方法在学生端还原笔迹
-     */
-    public boolean pourIntoTouchEvent(MotionEvent event) {
-        return handleTouchEvent(event);
+        if (DEBUG) {
+            Log.i(TAG, "mIsGeometryEditable : " + mIsGeometryEditable);
+        }
     }
 
     /**
      * 判断当前线型是否为几何图形
      */
     public boolean isGeometryType() {
-        return isGeometryType(drawType);
+        return isGeometryType(mDrawType);
     }
 
     private boolean isGeometryType(DrawType drawType) {
@@ -2402,7 +2914,7 @@ public class HandWritingView extends View {
             case LINE: //直线
             case DASH: //点曲线
             case ARROW: //箭头
-            case DASHLINE: //点直线
+            case DASH_LINE: //点直线
             default:
                 return false;
         }
@@ -2416,6 +2928,16 @@ public class HandWritingView extends View {
     }
 
     //------------------------------设置几何图形画笔相关属性---------------------start
+
+    public void setPaintSizeThreshold(float paintSizeThreshold) {
+        if (paintSizeThreshold < MIN_PEN_SIZE || paintSizeThreshold > 4.0f) {
+            if (DEBUG) {
+                Log.e(TAG, "ERROR paintSizeThreshold : " + paintSizeThreshold + " < 1.0f or > 4.0f");
+            }
+            return;
+        }
+        mPaintSizeThreshold = paintSizeThreshold;
+    }
 
     /**
      * 设置几何图形画笔颜色
@@ -2469,14 +2991,14 @@ public class HandWritingView extends View {
      * 判断笔记是否有变化
      */
     public boolean isStrokeChange() {
-        return this.isStrokeChange;
+        return mIsStrokesChanged;
     }
 
     public void resetStrokeChange() {
         if (DEBUG) {
-            Log.i(TAG, "resetStrokeChange");
+            Log.i(TAG, "resetStrokeChange()");
         }
-        this.isStrokeChange = false;
+        mIsStrokesChanged = false;
     }
 
     /**
@@ -2495,7 +3017,6 @@ public class HandWritingView extends View {
         if (mPaint != null) {
             mPaint.setColor(color);
         }
-        mSetPenColor = color;
     }
 
     public int getPenColor() {
@@ -2505,25 +3026,30 @@ public class HandWritingView extends View {
         return 0;
     }
 
+    public int getGeometryPenColor() {
+        if (mGeometryPaint != null) {
+            return mGeometryPaint.getColor();
+        }
+        return 0;
+    }
+
     /**
-     * 设置线的形状：直线、虚线、曲线、箭头线等
+     * 设置线型;当在"皮擦"状态时，不允许切换线型，返回false。
      */
-    public void setDrawType(DrawType type) {
+    public boolean setDrawType(DrawType type) {
         if (DEBUG) {
             Log.i(TAG, "setDrawType >>> type = " + type);
         }
 
-        if (isRubber) {
+        if (mIsRubber) {
             if (DEBUG) {
-                Log.e(TAG, "rubber status not allow to set drawType!!!");
+                Log.e(TAG, "mRubber status not allow to set mDrawType!!!");
             }
-            return;
+            return false;
         }
 
-        drawType = type;
-
         if (mPaint == null) {
-            return;
+            return false;
         }
 
         // 处理当前处于几何图形编辑状态时的切换逻辑
@@ -2531,13 +3057,19 @@ public class HandWritingView extends View {
             mGeometryListener.handleEditableGeometry();
         }
 
+        mDrawType = type;
         // 重置画笔状态
-        switch (drawType) {
+        switch (mDrawType) {
             case DASH: //点曲线
-            case DASHLINE: //点直线
+            case DASH_LINE: //点直线
                 mPaint.setStyle(Paint.Style.STROKE);
                 // DashPathEffect 画虚线，{5,15,5,15}  5实线，15虚线，5实线，15虚线
                 // 虚线绘制的时候会不断的循环这个数组，1表示偏移量
+                /*  它的构造方法 DashPathEffect(float[] intervals, float phase) 中，第一个参数intervals是
+                    一个数组，它指定了虚线的格式：数组中元素必须为偶数（最少是2个），按照「画线长度、空白长度、画线长度、空白长度」
+                    ……的顺序排列，例如下面代码中的5,15,5,15就表示虚线是按照「画5像素、空15像素、画5像素、空15像素」的模式来绘制；
+                    第二个参数 phase 是虚线的偏移量。
+                */
                 PathEffect effect = new DashPathEffect(new float[]{5, 15, 5, 15}, 1);
                 mPaint.setPathEffect(effect);
                 break;
@@ -2569,14 +3101,23 @@ public class HandWritingView extends View {
                 }
                 break;
         }
+        return true;
     }
 
     public DrawType getDrawType() {
-        return drawType;
+        return mDrawType;
+    }
+
+    public void setRubberBitmap(Bitmap rubber) {
+        if (rubber == null) {
+            return;
+        }
+        this.mRubber = rubber;
+        eraserHalf = rubber.getWidth() / 2;
     }
 
     public boolean isRubber() {
-        return isRubber;
+        return mIsRubber;
     }
 
     public boolean getCanDraw() {
@@ -2588,36 +3129,18 @@ public class HandWritingView extends View {
      */
     public void setCanDraw(boolean canDraw) {
         if (DEBUG) {
-            Log.i(TAG, "setCanDraw");
+            Log.i(TAG, "canDraw = [" + canDraw + "]");
         }
         this.canDraw = canDraw;
-    }
-
-    /**
-     * 获得笔记的Bitmap
-     */
-    public Bitmap getBitmap() {
-        if (writingViewBitmap == null) {
-            if (getWidth() == 0 || getHeight() == 0) {
-                writingViewBitmap = Bitmap.createBitmap(mWidth, mHeight,
-                        Bitmap.Config.ARGB_4444);
-            } else {
-                writingViewBitmap = Bitmap.createBitmap(getWidth(),
-                        getHeight(), Bitmap.Config.ARGB_4444);
-            }
-
-            writingViewCanvas = new Canvas(writingViewBitmap);
-        }
-        writingViewBitmap.eraseColor(Color.TRANSPARENT);
-        draw(writingViewCanvas);
-        return writingViewBitmap;
     }
 
     public void setBitmap(Bitmap mBitmap) {
         if (DEBUG) {
             Log.i(TAG, "setBitmap");
         }
-        this.handWritingCanvas.drawBitmap(mBitmap, paintDither);
+        if (mHandWritingCanvas != null) {
+            mHandWritingCanvas.drawBitmap(mBitmap, mBitmapPaint);
+        }
     }
 
     public void setBitmap(Bitmap mBitmap, String stroke) {
@@ -2628,14 +3151,20 @@ public class HandWritingView extends View {
         if (stroke != null) {
             int index = stroke.lastIndexOf("@");
             if (index > 0) {
-                this.strokes = new StringBuilder(stroke.substring(index + 1));
+                this.mStrokes = new StringBuilder(stroke.substring(index + 1));
             } else {
-                this.strokes = new StringBuilder();
+                this.mStrokes = new StringBuilder();
             }
         }
 
-        this.handWritingCanvas.drawBitmap(mBitmap, paintDither);
+        if (mHandWritingCanvas != null) {
+            mHandWritingCanvas.drawBitmap(mBitmap, mBitmapPaint);
+        }
         invalidate();
+    }
+
+    public boolean isHWCInitFinished() {
+        return mIsHWCInitFinished;
     }
 
     public void setDebug(boolean isDebug) {
@@ -2644,36 +3173,24 @@ public class HandWritingView extends View {
 
     public View getActionDownView() {
         if (DEBUG) {
-            Log.i(TAG, "getActionDownView");
+            Log.i(TAG, "getActionDownView()");
         }
-        return actionDownView;
+        return mActionDownView;
     }
 
     public void setActionDownView(View actionDownView) {
         if (DEBUG) {
-            Log.i(TAG, "setActionDownView");
+            Log.i(TAG, "setActionDownView()");
         }
-        this.actionDownView = actionDownView;
+        this.mActionDownView = actionDownView;
     }
 
-    public int getmWidth() {
+    public int getHWWidth() {
         return mWidth;
     }
 
-    private void setmWidth(int mWidth) {
-        this.mWidth = mWidth;
-    }
-
-    public int getmHeight() {
+    public int getHWHeight() {
         return mHeight;
-    }
-
-    private void setmHeight(int mHeight) {
-        this.mHeight = mHeight;
-    }
-
-    public void setRecycleListener(RecycleListener recycleListener) {
-        this.recycleListener = recycleListener;
     }
 
     public void setGeometryListener(IGeometryListener geometryListener) {
@@ -2682,6 +3199,24 @@ public class HandWritingView extends View {
 
     public boolean isGeometryEditable() {
         return mIsGeometryEditable;
+    }
+
+    public void setMaxScale(float maxScale) {
+        if (maxScale > mMinScale && maxScale < mMaxScale) {
+            mMaxScale = maxScale;
+        } else {
+            Log.e(TAG, "invalid maxScale : " + maxScale);
+        }
+    }
+
+    public void release() {
+        if (mOnGestureListener != null) {
+            mOnGestureListener.release();
+        }
+
+        mWritingViewBitmap = null;
+        mOnGestureListener = null;
+        mCustomGestureDetector = null;
     }
     //------------------------------getter and setter-----------------------end
 }

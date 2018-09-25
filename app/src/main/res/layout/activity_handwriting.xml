@@ -8,6 +8,10 @@
     <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginBottom="@dimen/hw_dp_8"
+        android:layout_marginLeft="@dimen/hw_dp_4"
+        android:layout_marginRight="@dimen/hw_dp_4"
+        android:layout_marginTop="@dimen/hw_dp_4"
         android:background="@android:color/white"
         android:scrollbars="horizontal">
 
@@ -69,6 +73,19 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="清空笔迹"/>
+
+            <Button
+                android:id="@+id/add_scale_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="添加scaleView"/>
+
+            <Button
+                android:id="@+id/clear_scale_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="移除scaleView"/>
+
         </LinearLayout>
     </HorizontalScrollView>
 
@@ -76,11 +93,23 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
 
-        <com.hand.writing.view.HandWritingGeometryView
-            android:id="@+id/hand_writing_view"
+        <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="500dp"
-            android:background="@color/color_cccccc"/>
-    </com.hand.writing.view.HandScrollView>
+            android:layout_height="wrap_content"
+            android:background="@color/color_cccccc"
+            android:minHeight="500dp">
 
+            <ImageView
+                android:id="@+id/scale_iv"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"/>
+
+            <com.hand.writing.view.HandWritingGeometryView
+                android:id="@+id/hand_writing_view"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"/>
+        </FrameLayout>
+
+    </com.hand.writing.view.HandScrollView>
 </LinearLayout>

@@ -8,13 +8,12 @@ import android.graphics.PaintFlagsDrawFilter;
 import android.graphics.Path;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.support.annotation.NonNull;
 import android.util.Log;
-
 
 import java.util.Random;
 
 import static com.hand.writing.HandWritingViewHelper.DEBUG;
-
 
 public class HandWritingCanvas {
     private String TAG = "HandWritingCanvas";
@@ -27,25 +26,26 @@ public class HandWritingCanvas {
     private int tileVerticalCount;// 垂直方向小块个数
     private Tile[] tiles;
 
-    class Tile {
+    private class Tile {
         Bitmap bitmap;
         Canvas canvas;
         Rect rect;
-        int index = 0;
-        int x, y;
+        int index; //从水平方向往右开始的索引
+        int horizontalIndex; //水平索引
+        int verticalIndex; //竖直索引
 
-        public Tile(Bitmap bitmap, int x, int y) {
+        Tile(Bitmap bitmap, int horizontalIndex, int verticalIndex) {
             this.bitmap = bitmap;
             this.canvas = new Canvas(bitmap);
-            canvas.translate(-x * tileWidth, -y * tileWidth);
+            canvas.translate(-horizontalIndex * tileWidth, -verticalIndex * tileWidth);
             //抗锯齿 等效于Paint
             canvas.setDrawFilter(new PaintFlagsDrawFilter(0, Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG | Paint.DITHER_FLAG));
-            this.x = x;
-            this.y = y;
-            int left = x * tileWidth;
-            int top = y * tileWidth;
+            this.horizontalIndex = horizontalIndex;
+            this.verticalIndex = verticalIndex;
+            int left = horizontalIndex * tileWidth;
+            int top = verticalIndex * tileWidth;
             rect = new Rect(left, top, left + tileWidth, top + tileWidth);
-            index = y * tileHorizontalCount + x;
+            index = verticalIndex * tileHorizontalCount + horizontalIndex;
         }
     }
 
@@ -61,15 +61,16 @@ public class HandWritingCanvas {
 
         if (DEBUG) {
             Log.i(TAG, "width = " + width + ", height = " + height +
-                    ", tileHorizontalCount = " + tileHorizontalCount + ", tileVerticalCount = " + tileVerticalCount);
+                    ", tileHorizontalCount = " + tileHorizontalCount +
+                    ", tileVerticalCount = " + tileVerticalCount);
         }
 
         tiles = new Tile[tileHorizontalCount * tileVerticalCount];
         int i = 0;
-        for (int x = 0; x < tileHorizontalCount; x++) {
-            for (int y = 0; y < tileVerticalCount; y++) {
+        for (int horizontalIndex = 0; horizontalIndex < tileHorizontalCount; horizontalIndex++) {
+            for (int verticalIndex = 0; verticalIndex < tileVerticalCount; verticalIndex++) {
                 Bitmap bitmap = Bitmap.createBitmap(tileWidth, tileWidth, Bitmap.Config.ARGB_4444);
-                Tile tile = new Tile(bitmap, x, y);
+                Tile tile = new Tile(bitmap, horizontalIndex, verticalIndex);
                 tiles[i] = tile;
                 i++;
             }
@@ -77,11 +78,15 @@ public class HandWritingCanvas {
     }
 
     public void drawPath(Path path, Paint paint, float penSize) {
+        paint.setStrokeWidth(penSize);
+        drawPath(path, paint);
+    }
+
+    public void drawPath(@NonNull Path path, @NonNull Paint paint) {
         path.computeBounds(dirtyRect, false);
         for (Tile tile : tiles) {
             boolean inside = tile.rect.intersects((int) dirtyRect.left, (int) dirtyRect.top, (int) dirtyRect.right, (int) dirtyRect.bottom);
             if (inside) {
-                paint.setStrokeWidth(penSize);
                 drawPath(path, tile.canvas, paint);
             }
         }

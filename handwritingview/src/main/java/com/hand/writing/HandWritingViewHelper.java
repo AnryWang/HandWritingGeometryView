@@ -3,75 +3,88 @@ package com.hand.writing;
 import android.content.Context;
 import android.os.Build;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.text.TextUtils;
+import android.util.Base64;
 import android.view.ViewGroup;
 
+import com.hand.writing.view.HandWritingGeometryView;
 
-import com.hand.writing.view.HandWritingView;
-
-import java.io.UnsupportedEncodingException;
 import java.util.HashMap;
 import java.util.Map;
+
+import static com.hand.writing.utils.HandWritingCacheUtils.toInt;
 
 /**
  * 帮助类
  */
 public class HandWritingViewHelper {
     public static boolean DEBUG = false;// 控制日志打印的标志位
+    public static boolean IGNORE_TOOL_TYPE_INPUT = true; //是否忽略输入设备类型
+
     public static final String HEIGHT = "height";
     public static final String WIDTH = "width";
     public static final String STROKE_HEIGHT = "stroke_height";
     public static final String STROKE_WIDTH = "stroke_width";
-    static int sDefMinHeight = 275;//默认手写控件最小高度
 
+    private static final String STROKE_VERSION = "1.0";
+    private static int sDefMinHeight = 275;//默认手写控件最小高度
+
+    /**
+     * Creates a new instance of HandWritingViewHelper.
+     */
     private HandWritingViewHelper() {
     }
 
     /**
      * 根据手写笔迹得到手写控件,若无则创建默认手写区域
      */
-    public static HandWritingView getHandWriteViewByStrokeOrDefault(
+    @Deprecated
+    public static HandWritingGeometryView getHandWriteViewByStrokeOrDefault(
             Context context, String stroke, int width, int height) {
-        HandWritingView handWritingView;
+        HandWritingGeometryView handWritingGeometryView;
         if (stroke == null || !stroke.contains("@")) {
-            handWritingView = new HandWritingView(context, width, height);
-            handWritingView.setToWriting();
+            handWritingGeometryView = new HandWritingGeometryView(context, width, height);
+            handWritingGeometryView.setToWriting();
         } else {
-            handWritingView = getHandWriteViewByStroke(context, stroke);
+            handWritingGeometryView = getHandWriteViewByStroke(context, stroke);
         }
-        return handWritingView;
+        return handWritingGeometryView;
     }
 
     /**
      * 根据手写笔迹得到手写控件
      */
-    public static HandWritingView getHandWriteViewByStroke(Context context, String stroke) {
+    @Nullable
+    public static HandWritingGeometryView getHandWriteViewByStroke(Context context, String stroke) {
         Map<String, Integer> widthHeight = getWidthAndHeight(stroke);
         if (widthHeight == null) {
             return null;
         }
-        HandWritingView handWritingView = new HandWritingView(context,
+        HandWritingGeometryView handWritingGeometryView = new HandWritingGeometryView(context,
                 widthHeight.get(WIDTH), widthHeight.get(HEIGHT));
-        handWritingView.restoreToImage(stroke);
-        handWritingView.setToWriting();
-        return handWritingView;
+        handWritingGeometryView.restoreToImage(stroke);
+        handWritingGeometryView.setToWriting();
+        return handWritingGeometryView;
     }
 
     /**
      * 根据手写笔迹得到手写控件(可根据笔记高度截断调整view高度)
      */
-    public static HandWritingView getHandWriteViewByStroke(Context context, String stroke,
-                                                           boolean isCutStrokeHeight) {
+    @Nullable
+    public static HandWritingGeometryView getHandWriteViewByStroke(Context context, String stroke,
+                                                                   boolean isCutStrokeHeight) {
         return getHandWriteViewByStroke(context, stroke, sDefMinHeight, isCutStrokeHeight);
     }
 
-    public static HandWritingView getHandWriteViewByStroke(Context context, String stroke,
-                                                           int minHeight, boolean isCutStrokeHeight) {
+    @Nullable
+    public static HandWritingGeometryView getHandWriteViewByStroke(Context context, String stroke,
+                                                                   int minHeight, boolean isCutStrokeHeight) {
         Map<String, Integer> widthHeight = getWidthAndHeight(stroke);
         if (widthHeight == null) {
             return null;
         }
-        HandWritingView handWritingView;
+        HandWritingGeometryView handWritingGeometryView;
         int height;
         if (isCutStrokeHeight) {
             if (widthHeight.get(STROKE_HEIGHT) == 0) {
@@ -84,54 +97,22 @@ public class HandWritingViewHelper {
             height = widthHeight.get(HandWritingViewHelper.HEIGHT);
         }
 
-        handWritingView = new HandWritingView(context, widthHeight.get(WIDTH), height);
+        handWritingGeometryView = new HandWritingGeometryView(context, widthHeight.get(WIDTH), height);
 
-        handWritingView.restoreToImage(stroke);
-        handWritingView.setToWriting();
-        return handWritingView;
+        handWritingGeometryView.restoreToImage(stroke);
+        handWritingGeometryView.setToWriting();
+        return handWritingGeometryView;
     }
 
     /**
      * 根据手写笔迹得到手写控件,(可根据笔记高度截断调整view高度)
      */
-    public static void getHandWriteViewByStroke(@NonNull HandWritingView handWritingView,
+    public static void getHandWriteViewByStroke(@NonNull HandWritingGeometryView handWritingGeometryView,
                                                 String stroke, boolean isCutStrokeHeight) {
-        getHandWriteViewByStroke(handWritingView, stroke, sDefMinHeight, isCutStrokeHeight);
+        getHandWriteViewByStroke(handWritingGeometryView, stroke, sDefMinHeight, isCutStrokeHeight);
     }
 
-    public static int toInt(String intStr) {
-        return toInt(intStr, 0);
-    }
-
-    public static int toInt(String intStr, int defValue) {
-        int temp;
-        try {
-            temp = Integer.parseInt(intStr);
-        } catch (NumberFormatException e) {
-            e.printStackTrace();
-            temp = defValue;
-        }
-
-        return temp;
-    }
-
-    public static float toFloat(String floatStr) {
-        return toFloat(floatStr, 0.0f);
-    }
-
-    public static float toFloat(String intStr, float defValue) {
-        float temp;
-        try {
-            temp = Float.parseFloat(intStr);
-        } catch (NumberFormatException e) {
-            e.printStackTrace();
-            temp = defValue;
-        }
-
-        return temp;
-    }
-
-    public static void getHandWriteViewByStroke(@NonNull HandWritingView handWritingView, String stroke,
+    public static void getHandWriteViewByStroke(@NonNull HandWritingGeometryView handWritingGeometryView, String stroke,
                                                 int minHeight, boolean isCutStrokeHeight) {
         Map<String, Integer> widthHeight = getWidthAndHeight(stroke);
         if (widthHeight == null) {
@@ -149,26 +130,27 @@ public class HandWritingViewHelper {
             height = widthHeight.get(HEIGHT);
         }
 
-        ViewGroup.LayoutParams layoutParams = handWritingView.getLayoutParams();
+        ViewGroup.LayoutParams layoutParams = handWritingGeometryView.getLayoutParams();
         layoutParams.height = height;
-        handWritingView.setLayoutParams(layoutParams);
+        handWritingGeometryView.setLayoutParams(layoutParams);
 
-        handWritingView.restoreToImage(stroke);
-        handWritingView.setToWriting();
+        handWritingGeometryView.restoreToImage(stroke);
     }
 
     /**
      * 合并多个笔记
      */
+    @Nullable
     public static String mergeStrokes(String[] strokes) {
+        if (strokes == null) {
+            return null;
+        }
+
         int height = 0;
         int width = 0;
         int strokeHeight = 0;
         int strokeWidth = 0;
-        String mergePaths = null;
-        if (strokes == null) {
-            return null;
-        }
+        StringBuilder mergePaths = null;
 
         for (String stroke : strokes) {
             Map<String, Integer> widthHeight = getWidthAndHeight(stroke);
@@ -183,9 +165,9 @@ public class HandWritingViewHelper {
             String paths = getPaths(stroke);
             if (paths != null) {
                 if (mergePaths == null) {
-                    mergePaths = paths;
+                    mergePaths = new StringBuilder(paths);
                 } else {
-                    mergePaths += "=" + paths;
+                    mergePaths.append("=").append(paths);
                 }
             }
         }
@@ -195,27 +177,28 @@ public class HandWritingViewHelper {
         }
 
         return width + "," + height + "," + strokeWidth + "," + strokeHeight
-                + "&" + HandWritingView.STROKE_VERSION + "@" + mergePaths;
+                + "&" + STROKE_VERSION + "@" + mergePaths.toString();
     }
 
     /**
      * 书写笔迹存储格式用&将宽、高数据与其他数据分隔开
      */
+    @Deprecated
     public static int[] getImageSize(String s) {
         int[] ss = new int[2];
-        String strImage;
+        String mStrImage;
         try {
-            strImage = new String(BASE64.decode(s));
-            String[] strImageArr = strImage.split("&");
+            mStrImage = new String(Base64.decode(s, Base64.DEFAULT));
+            String[] mImageArr = mStrImage.split("&");
             int width, height;
-            if (strImageArr.length > 0) {
-                String[] strArr = strImageArr[0].split(",");
+            if (mImageArr.length > 0) {
+                String[] strArr = mImageArr[0].split(",");
                 width = toInt(strArr[0]);
                 height = toInt(strArr[1]);
                 ss[0] = width;
                 ss[1] = height;
             }
-        } catch (UnsupportedEncodingException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
 
@@ -225,41 +208,48 @@ public class HandWritingViewHelper {
     /**
      * 解码好的字符串，直接解析得到宽高
      */
-    public static Map<String, Integer> getWidthAndHeight(String drawPath) {
-        if (TextUtils.isEmpty(drawPath)) {
+    @Nullable
+    public static Map<String, Integer> getWidthAndHeight(String strokes) {
+        if (TextUtils.isEmpty(strokes)) {
             return null;
         }
-        String str = drawPath.split("&")[0];
-        String[] size = str.split(",");
-        int height = 0;
-        int width = 0;
-        int strokeHeight = 0;
-        int strokeWidth = 0;
-        if (size.length == 2 || size.length == 4) {
-            width = toInt(size[0]);
-            height = toInt(size[1]);
-            if (size.length == 4) {
-                strokeWidth = toInt(size[2]);
-                strokeHeight = toInt(size[3]);
+
+        Map<String, Integer> map = null;
+
+        int index = strokes.indexOf("&");
+        if (index != -1) {
+            String str = strokes.substring(0, index);
+            String[] sizeArr = str.split(",");
+            if (sizeArr.length == 2 || sizeArr.length == 4) {
+                map = new HashMap<>();
+                map.put(WIDTH, toInt(sizeArr[0]));
+                map.put(HEIGHT, toInt(sizeArr[1]));
+
+                if (sizeArr.length == 4) {
+                    map.put(STROKE_WIDTH, toInt(sizeArr[2]));
+                    map.put(STROKE_HEIGHT, toInt(sizeArr[3]));
+                }
             }
         }
-        Map<String, Integer> map = new HashMap<>();
-        map.put(HEIGHT, height);
-        map.put(WIDTH, width);
-        map.put(STROKE_WIDTH, strokeWidth);
-        map.put(STROKE_HEIGHT, strokeHeight);
+
         return map;
     }
 
-    public static String getPaths(String drawPath) {
-        if (TextUtils.isEmpty(drawPath)) {
+    @Nullable
+    public static String getPaths(String strokes) {
+        if (TextUtils.isEmpty(strokes)) {
             return null;
         }
-        String[] str = drawPath.split("@");
-        if (str.length == 2) {
-            return str[1];
+
+        int lastIndex = strokes.lastIndexOf("@");
+        if (lastIndex != -1) {
+            return strokes.substring(lastIndex + 1);
         }
         return null;
+    }
+
+    public static String getStrokeVersion() {
+        return STROKE_VERSION;
     }
 
     // 三星手写设备

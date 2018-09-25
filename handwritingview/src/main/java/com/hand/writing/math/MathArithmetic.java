@@ -2,21 +2,14 @@ package com.hand.writing.math;
 
 import android.graphics.Point;
 
-import java.text.DecimalFormat;
-
 /**
  * Desc: 算法工具类
- * Copyright: Copyright (c) 2016
  *
  * @author JiLin
  * @version 1.0
  * @since 2017/10/24 0024
  */
-
 public class MathArithmetic {
-    // 保留小数点后两位
-    public static DecimalFormat sDecimalFormat = new DecimalFormat("#.00");
-
     /**
      * return a+f*(b-a)根据f系数返回a-b之间的值
      */
@@ -95,13 +88,19 @@ public class MathArithmetic {
     /**
      * 叉积
      */
+    @Deprecated
     public static double mult(Point a, Point b, Point c) {
         return (a.x - c.x) * (b.y - c.y) - (b.x - c.x) * (a.y - c.y);
+    }
+
+    public static double mult(int x1, int y1, int x2, int y2, int x3, int y3) {
+        return (x1 - x3) * (y2 - y3) - (x2 - x3) * (y1 - y3);
     }
 
     /**
      * aa, bb为一条线段两端点 cc, dd为另一条线段的两端点 相交返回true, 不相交返回false
      */
+    @Deprecated
     public static boolean intersect1(Point aa, Point bb, Point cc, Point dd) {
         return Math.max(aa.x, bb.x) >= Math.min(cc.x, dd.x) &&
                 Math.max(aa.y, bb.y) >= Math.min(cc.y, dd.y) &&
@@ -109,6 +108,18 @@ public class MathArithmetic {
                 Math.max(cc.y, dd.y) >= Math.min(aa.y, bb.y) &&
                 mult(cc, bb, aa) * mult(bb, dd, aa) >= 0 &&
                 mult(aa, dd, cc) * mult(dd, bb, cc) >= 0;
+    }
+
+    /**
+     * x1,y1和x2,y2为一条线段两端点; x3,y3和x4,y4为另一条线段的两端点;相交返回true, 不相交返回false
+     */
+    public static boolean intersect1(int x1, int y1, int x2, int y2, int x3, int y3, int x4, int y4) {
+        return Math.max(x1, x2) >= Math.min(x3, x4) &&
+                Math.max(y1, y2) >= Math.min(y3, y4) &&
+                Math.max(x3, x4) >= Math.min(x1, x2) &&
+                Math.max(y3, y4) >= Math.min(y1, y2) &&
+                mult(x3, y3, x2, y2, x1, y1) * mult(x2, y2, x4, y4, x1, y1) >= 0 &&
+                mult(x1, y1, x4, y4, x3, y3) * mult(x4, y4, x2, y2, x3, y3) >= 0;
     }
     /* 判断两条线段是否相交end */
 }

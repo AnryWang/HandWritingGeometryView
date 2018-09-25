@@ -10,7 +10,7 @@ public enum DrawType {
     LINE(1), //直线
     DASH(2), //点曲线
     ARROW(3), //箭头
-    DASHLINE(4), //点直线
+    DASH_LINE(4), //点直线
     TRIANGLE(5), //三角形
     RECTANGLE(6), //矩形
     TRAPEZIUM(7), //梯形

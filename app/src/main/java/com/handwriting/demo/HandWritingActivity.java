@@ -1,5 +1,7 @@
 package com.handwriting.demo;
 
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Environment;
@@ -11,11 +13,13 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.Toast;
 
 import com.hand.writing.DrawType;
+import com.hand.writing.HandWritingViewHelper;
 import com.hand.writing.view.HandWritingGeometryView;
 import com.handwriting.common.base.MyApplication;
 import com.handwriting.common.util.CustomToastUtil;
@@ -42,8 +46,10 @@ public class HandWritingActivity extends AppCompatActivity {
     Spinner mColorSp;
     @Bind(R.id.draw_type_sp)
     Spinner mDrawTypeSp;
+    @Bind(R.id.scale_iv)
+    ImageView mScaleIv;
     @Bind(R.id.hand_writing_view)
-    HandWritingGeometryView mHandWritingView;
+    HandWritingGeometryView mHandWritingGeometryView;
     @Bind(R.id.save_strokes_btn)
     Button mSaveStrokesBtn;
     @Bind(R.id.restore_btn)
@@ -96,15 +102,15 @@ public class HandWritingActivity extends AppCompatActivity {
         mRubberOrWriteSp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (mHandWritingView == null) {
+                if (mHandWritingGeometryView == null) {
                     return;
                 }
                 switch (position) {
                     case 0: // 手写
-                        mHandWritingView.setToWriting();
+                        mHandWritingGeometryView.setToWriting();
                         break;
                     case 1: // 橡皮
-                        mHandWritingView.setToRubber();
+                        mHandWritingGeometryView.setToRubber();
                         break;
                 }
             }
@@ -120,15 +126,15 @@ public class HandWritingActivity extends AppCompatActivity {
         mColorSp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (mHandWritingView == null) {
+                if (mHandWritingGeometryView == null) {
                     return;
                 }
                 switch (position) {
                     case 0: // 蓝色
-                        mHandWritingView.setPenColor(Color.BLUE);
+                        mHandWritingGeometryView.setPenColor(Color.BLUE);
                         break;
                     case 1: // 红色
-                        mHandWritingView.setPenColor(Color.RED);
+                        mHandWritingGeometryView.setPenColor(Color.RED);
                         break;
                 }
             }
@@ -144,42 +150,42 @@ public class HandWritingActivity extends AppCompatActivity {
         mDrawTypeSp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (mHandWritingView == null) {
+                if (mHandWritingGeometryView == null) {
                     return;
                 }
                 switch (position) {
                     case 0: // 曲线
-                        mHandWritingView.setDrawType(DrawType.CURVE);
+                        mHandWritingGeometryView.setDrawType(DrawType.CURVE);
                         break;
                     case 1: // 点曲线
-                        mHandWritingView.setDrawType(DrawType.DASH);
+                        mHandWritingGeometryView.setDrawType(DrawType.DASH);
                         break;
                     case 2: // 直线
-                        mHandWritingView.setDrawType(DrawType.LINE);
+                        mHandWritingGeometryView.setDrawType(DrawType.LINE);
                         break;
                     case 3: // 点直线
-                        mHandWritingView.setDrawType(DrawType.DASHLINE);
+                        mHandWritingGeometryView.setDrawType(DrawType.DASH_LINE);
                         break;
                     case 4: // 箭头
-                        mHandWritingView.setDrawType(DrawType.ARROW);
+                        mHandWritingGeometryView.setDrawType(DrawType.ARROW);
                         break;
                     case 5: // 三角形
-                        mHandWritingView.setDrawType(DrawType.TRIANGLE);
+                        mHandWritingGeometryView.setDrawType(DrawType.TRIANGLE);
                         break;
                     case 6: // 矩形
-                        mHandWritingView.setDrawType(DrawType.RECTANGLE);
+                        mHandWritingGeometryView.setDrawType(DrawType.RECTANGLE);
                         break;
                     case 7: // 梯形
-                        mHandWritingView.setDrawType(DrawType.TRAPEZIUM);
+                        mHandWritingGeometryView.setDrawType(DrawType.TRAPEZIUM);
                         break;
                     case 8: // 椭圆
-                        mHandWritingView.setDrawType(DrawType.OVAL);
+                        mHandWritingGeometryView.setDrawType(DrawType.OVAL);
                         break;
                     case 9: // 坐标系
-                        mHandWritingView.setDrawType(DrawType.COORDINATE);
+                        mHandWritingGeometryView.setDrawType(DrawType.COORDINATE);
                         break;
                     case 10: // 数轴
-                        mHandWritingView.setDrawType(DrawType.NUMBER_AXIS);
+                        mHandWritingGeometryView.setDrawType(DrawType.NUMBER_AXIS);
                         break;
                 }
             }
@@ -191,17 +197,19 @@ public class HandWritingActivity extends AppCompatActivity {
         });
     }
 
-    @OnClick({R.id.add_btn, R.id.subtract_btn, R.id.save_strokes_btn, R.id.restore_btn, R.id.delete_btn, R.id.clear_btn})
+    @OnClick({R.id.add_btn, R.id.subtract_btn, R.id.save_strokes_btn,
+            R.id.restore_btn, R.id.delete_btn, R.id.clear_btn,
+            R.id.add_scale_btn, R.id.clear_scale_btn})
     public void onClick(View view) {
-        if (mHandWritingView == null) {
+        if (mHandWritingGeometryView == null) {
             return;
         }
         switch (view.getId()) {
             case R.id.add_btn: // 增大手写区
-                addWriteArea(mHandWritingView);
+                addWriteArea(mHandWritingGeometryView);
                 break;
             case R.id.subtract_btn: // 减小手写区
-                subtractWriteArea(mHandWritingView);
+                subtractWriteArea(mHandWritingGeometryView);
                 break;
             case R.id.save_strokes_btn: // 保存笔迹
                 FileOutputStream fos = null;
@@ -214,7 +222,7 @@ public class HandWritingActivity extends AppCompatActivity {
                         }
                     }
 
-                    String strokes = mHandWritingView.getStrokes();
+                    String strokes = mHandWritingGeometryView.getStrokes();
                     if (TextUtils.isEmpty(strokes)) {
                         CustomToastUtil.showInfoToast("笔迹内容为空!没有需要保存的笔迹!");
                         return;
@@ -246,14 +254,14 @@ public class HandWritingActivity extends AppCompatActivity {
                         sb.append(new String(bytes, 0, len));
                     }
                     String strokes = sb.toString();
-//                    String strokes = "768,138,767,90&1.0@0#-65536#767,26,0.3993563;767,26,0.46444008#767,26,767,26=0#-65536#767,90,0.4794976;767,90,0.49926066#767,90,767,90";
+//                    某些设备获取event.getPressure()时得到一个野值导致笔迹压力出现一个异常大或者异常小的值，出现某部分手写区块变成了色块
 
                     if (TextUtils.isEmpty(strokes)) {
                         CustomToastUtil.showErrorToast("没有可以还原的笔迹!");
                         return;
                     }
 
-                    mHandWritingView.restoreToImage(strokes);
+                    HandWritingViewHelper.getHandWriteViewByStroke(mHandWritingGeometryView, strokes, false);
                 } catch (IOException e) {
                     CustomToastUtil.showErrorToast("笔迹文件还没有保存!无法复原笔迹!");
                     e.printStackTrace();
@@ -280,11 +288,32 @@ public class HandWritingActivity extends AppCompatActivity {
                 }
                 break;
             case R.id.clear_btn:
-                if (mHandWritingView != null) {
-                    mHandWritingView.clear();
+                if (mHandWritingGeometryView != null) {
+                    mHandWritingGeometryView.clear();
                 }
                 break;
+            case R.id.add_scale_btn: //添加缩放View
+                mScaleIv.setImageResource(R.mipmap.wallpaper);
+                mHandWritingGeometryView.setScaleView(mScaleIv);
+                break;
+            case R.id.clear_scale_btn: //移除缩放View
+                mScaleIv.setImageDrawable(null);
+                mHandWritingGeometryView.setScaleView(null);
+                break;
         }
+    }
+
+    /**
+     * 根据View生成Bitmap
+     */
+    private Bitmap getViewBitmap(View view) {
+        Bitmap bitmap = null;
+        if (view.getWidth() > 0 && view.getHeight() > 0) {
+            bitmap = Bitmap.createBitmap(view.getWidth(), view.getHeight(), Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(bitmap);
+            view.draw(canvas);
+        }
+        return bitmap;
     }
 
     /**
@@ -305,8 +334,8 @@ public class HandWritingActivity extends AppCompatActivity {
     /**
      * 增加手写区域
      */
-    private void addWriteArea(HandWritingGeometryView handWritingView) {
-        int currentHeightLevel = getCurrentHeightLevel(handWritingView);
+    private void addWriteArea(HandWritingGeometryView handWritingGeometryView) {
+        int currentHeightLevel = getCurrentHeightLevel(handWritingGeometryView);
         if (currentHeightLevel == LEVEL_THREE) {
             Toast.makeText(this, "已达最大高度!", Toast.LENGTH_SHORT).show();
             return;
@@ -316,14 +345,14 @@ public class HandWritingActivity extends AppCompatActivity {
         if (currentHeightLevel > LEVEL_THREE) {
             currentHeightLevel = LEVEL_THREE;
         }
-        resetHandWritingHeight(currentHeightLevel, handWritingView);
+        resetHandWritingHeight(currentHeightLevel, handWritingGeometryView);
     }
 
     /**
      * 减少手写区域
      */
-    private void subtractWriteArea(HandWritingGeometryView handWritingView) {
-        int currentHeightLevel = getCurrentHeightLevel(handWritingView);
+    private void subtractWriteArea(HandWritingGeometryView handWritingGeometryView) {
+        int currentHeightLevel = getCurrentHeightLevel(handWritingGeometryView);
         if (currentHeightLevel == LEVEL_ONE) {
             Toast.makeText(this, "已达最小高度!", Toast.LENGTH_SHORT).show();
             return;
@@ -333,38 +362,38 @@ public class HandWritingActivity extends AppCompatActivity {
         if (currentHeightLevel < LEVEL_ONE) {
             currentHeightLevel = LEVEL_ONE;
         }
-        resetHandWritingHeight(currentHeightLevel, handWritingView);
+        resetHandWritingHeight(currentHeightLevel, handWritingGeometryView);
     }
 
     /**
      * 重置手写控件高度
      *
-     * @param level           高度等级
-     * @param handWritingView 手写控件
+     * @param level                   高度等级
+     * @param handWritingGeometryView 手写控件
      */
-    private void resetHandWritingHeight(int level, HandWritingGeometryView handWritingView) {
-        if (handWritingView != null) {
-            boolean isRubber = handWritingView.isRubber();
-            DrawType drawType = handWritingView.getDrawType();
+    private void resetHandWritingHeight(int level, HandWritingGeometryView handWritingGeometryView) {
+        if (handWritingGeometryView != null) {
+            boolean isRubber = handWritingGeometryView.isRubber();
+            DrawType drawType = handWritingGeometryView.getDrawType();
 
-            FrameLayout.LayoutParams layoutParams = (FrameLayout.LayoutParams) handWritingView.getLayoutParams();
+            FrameLayout.LayoutParams layoutParams = (FrameLayout.LayoutParams) handWritingGeometryView.getLayoutParams();
             layoutParams.height = mDefHeight * level;
-            handWritingView.setLayoutParams(layoutParams);
+            handWritingGeometryView.setLayoutParams(layoutParams);
 
             //---------现在增减手写控件高度的时候，手写控件会还原笔迹--------------------------
             //还原笔迹
-            String strokes = handWritingView.getStrokes();
+            String strokes = handWritingGeometryView.getStrokes();
             if (!TextUtils.isEmpty(strokes)) {
-                handWritingView.restoreToImage(strokes);
+                handWritingGeometryView.restoreToImage(strokes);
             }
 
             //还原橡皮类型，必须放在restoreToImage(stokes)方法之后，因为restoreToImage(stokes)内部会重置成笔迹
             if (isRubber) {
-                handWritingView.setToRubber();
+                handWritingGeometryView.setToRubber();
             }
             //还原笔迹类型，必须放在restoreToImage(stokes)方法之后
             if (drawType != DrawType.CURVE) {
-                handWritingView.setDrawType(drawType);
+                handWritingGeometryView.setDrawType(drawType);
             }
         }
     }
@@ -374,11 +403,11 @@ public class HandWritingActivity extends AppCompatActivity {
      *
      * @return 高度级别
      */
-    private int getCurrentHeightLevel(HandWritingGeometryView handWritingView) {
-        if (null != handWritingView) {
-            if (handWritingView.getmHeight() <= mDefHeight + 10) {
+    private int getCurrentHeightLevel(HandWritingGeometryView handWritingGeometryView) {
+        if (null != handWritingGeometryView) {
+            if (handWritingGeometryView.getmHeight() <= mDefHeight + 10) {
                 return LEVEL_ONE;
-            } else if (handWritingView.getmHeight() <= 2 * mDefHeight + 10) {
+            } else if (handWritingGeometryView.getmHeight() <= 2 * mDefHeight + 10) {
                 return LEVEL_TWO;
             } else {
                 return LEVEL_THREE;

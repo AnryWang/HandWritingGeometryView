@@ -8,7 +8,6 @@ import com.hand.writing.view.HandWritingView;
 
 /**
  * Desc:几何图形监听回调接口
- * Copyright: Copyright (c) 2016
  *
  * @author JiLin
  * @version 1.0
@@ -75,4 +74,40 @@ public interface IGeometryListener {
      * 获取拖拽控制点半径大小
      */
     int getDragPointRadius();
+
+    /**
+     * 当前手写控制是否可以缩放;默认值为false不支持缩放
+     */
+    boolean isCanScale();
+
+    /**
+     * 获取手写控件x轴坐标
+     */
+    float getHandWritingX();
+
+    /**
+     * 获取手写控件y轴坐标
+     */
+    float getHandWritingY();
+
+    /**
+     * 设置手写控件缩放状态下修正后的x轴坐标
+     *
+     * @param revisedX 修正后的x轴坐标
+     */
+    void onSetX(float revisedX);
+
+    /**
+     * 设置手写控件缩放状态下修正后的x轴坐标
+     *
+     * @param revisedY 修正后的y轴坐标
+     */
+    void onSetY(float revisedY);
+
+    /**
+     * 设置手写控件的缩放比例
+     *
+     * @param curScale 当前缩放比例
+     */
+    void onScale(float curScale);
 }

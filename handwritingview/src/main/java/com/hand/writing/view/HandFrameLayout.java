@@ -7,11 +7,9 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.widget.FrameLayout;
 
-
 import com.hand.writing.HandWritingViewHelper;
 
 import static com.hand.writing.HandWritingViewHelper.DEBUG;
-
 
 /**
  * 控制手写事件分发的FrameLayout.(没有手写笔的设备实现单指书写,多指滑动)
